@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from calliope.providers.types import RouterProvider
+
 
 class HealthResponse(BaseModel):
     status: str = "ok"
@@ -20,11 +22,23 @@ class OllamaStatusResponse(BaseModel):
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=8000)
     model: str | None = None
+    provider: RouterProvider = RouterProvider.AUTO
 
 
 class GenerateResponse(BaseModel):
     model: str
     response: str
+    provider: str
+
+
+class RouterProvidersResponse(BaseModel):
+    """Which remote providers have API keys configured (never exposes secrets)."""
+
+    openai: bool
+    anthropic: bool
+    openrouter: bool
+    ollama: bool = True
+    defaults: dict[str, str]
 
 
 class GenerationJobCreate(BaseModel):

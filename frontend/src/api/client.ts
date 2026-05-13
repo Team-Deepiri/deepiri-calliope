@@ -1,5 +1,7 @@
 const base = "";
 
+export type RouterProvider = "auto" | "ollama" | "openai" | "anthropic" | "openrouter";
+
 export async function fetchHealth() {
   const r = await fetch(`${base}/health`);
   if (!r.ok) throw new Error("health failed");
@@ -12,12 +14,31 @@ export async function fetchOllamaStatus() {
   return r.json() as Promise<Record<string, unknown>>;
 }
 
-export async function generatePlan(prompt: string) {
+export async function fetchRouterProviders() {
+  const r = await fetch(`${base}/v1/router/providers`);
+  if (!r.ok) throw new Error("router providers failed");
+  return r.json() as Promise<{
+    openai: boolean;
+    anthropic: boolean;
+    openrouter: boolean;
+    ollama: boolean;
+    defaults: Record<string, string>;
+  }>;
+}
+
+export async function generatePlan(
+  prompt: string,
+  opts?: { model?: string; provider?: RouterProvider },
+) {
   const r = await fetch(`${base}/v1/generate/plan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({
+      prompt,
+      model: opts?.model?.trim() || undefined,
+      provider: opts?.provider ?? "auto",
+    }),
   });
   if (!r.ok) throw new Error(await r.text());
-  return r.json() as Promise<{ model: string; response: string }>;
+  return r.json() as Promise<{ model: string; response: string; provider: string }>;
 }

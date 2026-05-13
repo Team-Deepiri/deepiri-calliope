@@ -22,6 +22,19 @@ The API image clones [Aamati](https://github.com/jrb00013/Aamati) over SSH durin
 
 The `netlify.toml` builds the Vite app in `frontend/` and publishes `frontend/dist`. Point the Netlify site root at this repository and set `base` to the repo root (or split the frontend later).
 
+## Model router
+
+`POST /v1/generate/plan` accepts:
+
+- `provider`: `auto` (default), `ollama`, `openai`, `anthropic`, or `openrouter`
+- `model`: optional; if omitted with `auto`, `DEFAULT_LLM_PROVIDER` selects the backend and its default model
+
+With `provider=auto` and a `model` set, the backend infers the provider from the id (e.g. `gpt-*` → OpenAI, `claude-*` → Anthropic, `vendor/model` → OpenRouter, `ollama/mistral` → Ollama).
+
+`GET /v1/router/providers` returns which API keys are configured (booleans only).
+
+Set keys in `.env` (see `.env.example`).
+
 ## Python layout
 
 Poetry project lives in `backend/`. Core package: `calliope`.

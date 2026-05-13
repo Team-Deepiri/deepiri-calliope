@@ -5,7 +5,8 @@ import httpx
 from deepiri_ollama.runtime import check as ollama_check
 
 from calliope.config import get_settings
-from calliope.services.prompts import MUSIC_SYSTEM_PROMPT
+from calliope.providers.types import RouterProvider
+from calliope.services.model_router import ModelRouter
 
 
 class OllamaMusicBridge:
@@ -20,18 +21,13 @@ class OllamaMusicBridge:
         return await ollama_check(self._settings.ollama_base_url)
 
     async def generate_plan(self, user_prompt: str, model: str | None = None) -> str:
-        m = model or self._settings.ollama_model
-        payload = {
-            "model": m,
-            "prompt": f"{MUSIC_SYSTEM_PROMPT}\n\nUser brief:\n{user_prompt}\n\nRespond with sections: Tempo, Harmony, Texture, Arrangement notes.",
-            "stream": False,
-        }
-        url = f"{self._settings.ollama_base_url.rstrip('/')}/api/generate"
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            r = await client.post(url, json=payload)
-            r.raise_for_status()
-            data = r.json()
-            return str(data.get("response", ""))
+        router = ModelRouter(self._settings)
+        text, _, _ = await router.generate_music_plan(
+            user_prompt,
+            model=model,
+            provider=RouterProvider.OLLAMA,
+        )
+        return text
 
 
 async def ollama_json_tags(base_url: str) -> dict[str, Any]:

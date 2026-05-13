@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { fetchHealth, fetchOllamaStatus } from "../api/client";
+import { fetchHealth, fetchOllamaStatus, fetchRouterProviders } from "../api/client";
 
 export function Home() {
   const [health, setHealth] = useState<string>("…");
   const [ollama, setOllama] = useState<string>("…");
+  const [router, setRouter] = useState<string>("…");
 
   useEffect(() => {
     void (async () => {
@@ -19,6 +20,12 @@ export function Home() {
       } catch {
         setOllama("unreachable");
       }
+      try {
+        const r = await fetchRouterProviders();
+        setRouter(JSON.stringify(r, null, 2));
+      } catch {
+        setRouter("unreachable");
+      }
     })();
   }, []);
 
@@ -27,6 +34,10 @@ export function Home() {
       <h2>System</h2>
       <pre style={{ background: "#16131f", padding: "1rem", borderRadius: 8, overflow: "auto" }}>
         {health}
+      </pre>
+      <h2>Model router</h2>
+      <pre style={{ background: "#16131f", padding: "1rem", borderRadius: 8, overflow: "auto" }}>
+        {router}
       </pre>
       <h2>Ollama</h2>
       <pre style={{ background: "#16131f", padding: "1rem", borderRadius: 8, overflow: "auto" }}>
