@@ -11,7 +11,6 @@ type Props = {
 
 export function RotaryKnob({ label, value, onChange, min = 0, max = 100, accent = "var(--knob-accent, #818cf8)" }: Props) {
   const start = useRef({ y: 0, val: 0 });
-  const knobRef = useRef<HTMLDivElement>(null);
 
   const pct = (value - min) / (max - min);
   const rotation = -135 + pct * 270;
@@ -42,7 +41,7 @@ export function RotaryKnob({ label, value, onChange, min = 0, max = 100, accent 
   };
 
   return (
-    <div className="rotary-knob" ref={knobRef}>
+    <div className="rotary-knob">
       <div
         className="rotary-knob__dial"
         style={{ ["--knob-accent" as string]: accent, ["--knob-rot" as string]: `${rotation}deg` }}
