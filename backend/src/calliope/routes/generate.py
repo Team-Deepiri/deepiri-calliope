@@ -17,6 +17,7 @@ async def generate_plan(body: GenerateRequest) -> GenerateResponse:
             depth=body.depth,
             genre=body.genre,
             bpm_hint=body.bpm_hint,
+            vocal_rack=body.vocal_rack,
         )
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e

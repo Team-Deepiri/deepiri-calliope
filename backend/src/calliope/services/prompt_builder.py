@@ -7,6 +7,7 @@ from typing import Literal
 from calliope.music import BriefAnalysis, ProductionStructure, analyze_brief_text, plan_structure
 from calliope.music.chord_palette import palette_lines
 from calliope.music.structure_engine import structure_to_prompt_block
+from calliope.schemas import VocalRackIn
 from calliope.services.aamati_prior import AamatiPrior
 from calliope.services.prompts import (
     MUSIC_ARCHITECT_SYSTEM,
@@ -29,12 +30,30 @@ def build_system_prompt(depth: Depth) -> str:
     return MUSIC_SYSTEM_PROMPT
 
 
+def format_vocal_rack_block(v: VocalRackIn) -> str:
+    return (
+        "[Vocal chain — Calliope Studio rack]\n"
+        f"- Role / arrangement bias: {v.role}\n"
+        "- Tone & dynamics (0–100): "
+        f"breath/air {v.breath_air}, chest/body {v.chest_body}, presence/bite {v.presence_bite}, "
+        f"de-esser {v.de_esser}\n"
+        "- Color & space (0–100): "
+        f"saturation/drive {v.saturation_drive}, width/stereo {v.width_stereo}, "
+        f"room send {v.room_send}, delay throw {v.delay_throw}\n"
+        "- Pitch & character (0–100): "
+        f"tune tightness {v.tune_tightness}, formant shift {v.formant_shift} (50 = neutral)\n"
+        "Translate these into mic choice, comp/limit strategy, parallel FX, and how vocals sit "
+        "against the scaffold sections.\n"
+    )
+
+
 def build_user_payload(
     user_prompt: str,
     *,
     depth: Depth,
     genre_override: str | None,
     bpm_override: int | None,
+    vocal_rack: VocalRackIn | None = None,
 ) -> str:
     brief = analyze_brief_text(user_prompt)
     if genre_override:
@@ -55,9 +74,13 @@ def build_user_payload(
     )
     structure_block = "[Arrangement scaffold]\n" + structure_to_prompt_block(struct)
 
+    vocal_block = f"{format_vocal_rack_block(vocal_rack)}\n" if vocal_rack is not None else ""
+
+    vocal_heading = "## Vocals & processing\n" if vocal_rack is not None else ""
     tail = (
         "\nProduce your answer with these sections (markdown headings):\n"
         "## Tempo & meter\n## Harmony & tonality\n## Groove & rhythm\n## Texture & sound design\n"
+        f"{vocal_heading}"
         "## Arrangement (map to scaffold)\n## Mix notes\n## Next steps in the DAW\n"
     )
 
@@ -71,6 +94,8 @@ def build_user_payload(
         )
 
     return (
-        f"{analysis_block}\n{aamati_block}\n{palette_block}\n{structure_block}\n\n[Producer brief]\n{user_prompt.strip()}\n"
+        f"{analysis_block}\n{aamati_block}\n{palette_block}\n{structure_block}\n\n"
+        f"{vocal_block}"
+        f"[Producer brief]\n{user_prompt.strip()}\n"
         f"{RHYTHM_HARMONY_ADDENDUM}{tail}"
     )

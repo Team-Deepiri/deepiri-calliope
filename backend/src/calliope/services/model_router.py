@@ -1,6 +1,7 @@
 from calliope.config import Settings, get_settings
 from calliope.providers import anthropic_provider, ollama_provider, openai_provider, openrouter_provider
 from calliope.providers.types import RouterProvider
+from calliope.schemas import VocalRackIn
 from calliope.services.prompt_builder import (
     Depth,
     build_system_prompt,
@@ -87,6 +88,7 @@ class ModelRouter:
         depth: Depth = "standard",
         genre: str | None = None,
         bpm_hint: int | None = None,
+        vocal_rack: VocalRackIn | None = None,
     ) -> tuple[str, str, str]:
         resolved, model_id = resolve_route(self._settings, provider=provider, model=model)
         system = build_system_prompt(depth)
@@ -95,6 +97,7 @@ class ModelRouter:
             depth=depth,
             genre_override=genre,
             bpm_override=bpm_hint,
+            vocal_rack=vocal_rack,
         )
 
         if resolved is RouterProvider.OLLAMA:
