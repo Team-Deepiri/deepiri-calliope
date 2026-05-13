@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Cpu, Radio, Sparkles, SlidersHorizontal, Mic } from "lucide-react";
+import { Cpu, Radio, Sparkles, SlidersHorizontal, Mic, Music } from "lucide-react";
 import { generatePlan, type GenerateDepth, type RouterProvider } from "../api/client";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
 import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
 import { AudioRecorder } from "../components/audio/AudioRecorder";
 import { PluginChainEditor } from "../components/audio/PluginChainEditor";
+import { AudioClipsManager } from "../components/audio/AudioClipsManager";
 import type { PluginInstance } from "../types/audio";
 
 const PROVIDERS: { value: RouterProvider; label: string }[] = [
@@ -17,7 +18,7 @@ const PROVIDERS: { value: RouterProvider; label: string }[] = [
   { value: "openrouter", label: "OpenRouter" },
 ];
 
-type StudioTab = "architect" | "vocal_studio" | "plugin_chain";
+type StudioTab = "architect" | "vocal_studio" | "plugin_chain" | "clips";
 
 export function Studio() {
   const [prompt, setPrompt] = useState(
@@ -110,6 +111,15 @@ export function Studio() {
         >
           <SlidersHorizontal className="w-4 h-4 inline mr-2" />
           Plugin Chain
+        </button>
+        <button
+          onClick={() => setActiveTab("clips")}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            activeTab === "clips" ? "bg-green-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"
+          }`}
+        >
+          <Music className="w-4 h-4 inline mr-2" />
+          Audio Clips
         </button>
       </div>
 
@@ -204,6 +214,14 @@ export function Studio() {
                 onChange={setPluginChain}
                 onBypass={() => setPluginChain([])}
               />
+            </div>
+          </section>
+        )}
+
+        {activeTab === "clips" && (
+          <section className="studio-col studio-col--main stack">
+            <div className="glass-panel studio-panel" style={{ padding: "1.35rem" }}>
+              <AudioClipsManager />
             </div>
           </section>
         )}

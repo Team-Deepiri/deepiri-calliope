@@ -10,6 +10,9 @@ import {
   Settings,
   X,
   Download,
+  Music,
+  FileAudio,
+  FolderOpen,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -55,6 +58,12 @@ export function AudioRecorder({
   const [autotuneConfig, setAutotuneConfig] = useState<AutotuneConfig>(DEFAULT_AUTOTUNE_CONFIG);
   const [isProcessing, setIsProcessing] = useState(false);
   const [waveformData, setWaveformData] = useState<number[]>([]);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -304,6 +313,96 @@ export function AudioRecorder({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
   
+  const ensureSession = async () => {
+    if (!currentSession) {
+      const session = await createRecordingSession("Session " + new Date().toLocaleTimeString());
+      setCurrentSession(session);
+      return session;
+    }
+    return currentSession;
+  };
+  
+  const handleFileUpload = async (file: File) => {
+    if (!file.type.startsWith("audio/") && !file.name.match(/\.(wav|mp3|ogg|flac|m4a|aac|webm)$/i)) {
+      alert("Please upload an audio file (WAV, MP3, OGG, FLAC, M4A, AAC, or WebM)");
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadProgress(0);
+    
+    try {
+      const session = await ensureSession();
+      
+      setUploadProgress(30);
+      const result = await uploadRecordingFile(session.id, file, "vocal");
+      
+      setUploadProgress(80);
+      const newFile: RecordingFile = {
+        id: result.recording_id,
+        filename: result.filename,
+        original_name: file.name,
+        format: file.name.split(".").pop()?.toLowerCase() || "audio",
+        duration_sec: result.duration_sec,
+        track_type: "vocal",
+        uploaded_at: new Date().toISOString(),
+      };
+      
+      setUploadProgress(100);
+      setFiles((prev) => [...prev, newFile]);
+      setSelectedFile(newFile);
+      setShowUploadDialog(false);
+      onRecordingComplete?.(newFile, session.id);
+    } catch (e) {
+      console.error("Failed to upload file:", e);
+      alert("Failed to upload file. Please try again.");
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  };
+  
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    const audioFile = files.find((f) => f.type.startsWith("audio/") || f.name.match(/\.(wav|mp3|ogg|flac|m4a|aac|webm)$/i));
+    
+    if (audioFile) {
+      void handleFileUpload(audioFile);
+    }
+  }, [currentSession]);
+  
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+  
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+  }, []);
+  
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      void handleFileUpload(file);
+    }
+  }, []);
+  
+  const handleBrowseFiles = () => {
+    fileInputRef.current?.click();
+  };
+  
+  const handleDeleteFile = async (file: RecordingFile) => {
+    // Note: would need backend support for delete endpoint
+    setFiles((prev) => prev.filter((f) => f.id !== file.id));
+    if (selectedFile?.id === file.id) {
+      setSelectedFile(null);
+    }
+  };
+  
   return (
     <div className="bg-gray-900 rounded-xl p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -313,6 +412,13 @@ export function AudioRecorder({
         </h3>
         
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowUploadDialog(true)}
+            className="p-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+            title="Upload Audio Clip"
+          >
+            <FolderOpen className="w-4 h-4" />
+          </button>
           <button
             onClick={() => setShowAutotune(!showAutotune)}
             className={`p-2 rounded-lg transition-colors ${
@@ -331,6 +437,14 @@ export function AudioRecorder({
           </button>
         </div>
       </div>
+      
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.webm"
+        onChange={handleFileInputChange}
+        className="hidden"
+      />
       
       <canvas
         ref={canvasRef}
@@ -554,6 +668,106 @@ export function AudioRecorder({
           Processing...
         </div>
       )}
+      
+      <AnimatePresence>
+        {showUploadDialog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+            onClick={() => !isUploading && setShowUploadDialog(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-gray-900 rounded-xl p-6 w-[480px] max-w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <FolderOpen className="w-5 h-5" />
+                  Upload Audio Clip
+                </h3>
+                <button
+                  onClick={() => setShowUploadDialog(false)}
+                  disabled={isUploading}
+                  className="text-gray-400 hover:text-white disabled:opacity-50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                  dragOver
+                    ? "border-green-500 bg-green-900/20"
+                    : "border-gray-600 hover:border-gray-500"
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.webm"
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                />
+                
+                {isUploading ? (
+                  <div className="space-y-4">
+                    <div className="w-16 h-16 mx-auto bg-gray-800 rounded-full flex items-center justify-center">
+                      <FileAudio className="w-8 h-8 text-green-400 animate-pulse" />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-white font-medium">Uploading...</div>
+                      <div className="w-full bg-gray-800 rounded-full h-2">
+                        <div
+                          className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="w-16 h-16 mx-auto bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                      <Upload className="w-8 h-8 text-gray-400" />
+                    </div>
+                    <p className="text-gray-300 font-medium mb-2">
+                      Drag & drop audio file here
+                    </p>
+                    <p className="text-gray-500 text-sm mb-4">
+                      or
+                    </p>
+                    <button
+                      onClick={handleBrowseFiles}
+                      className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+                    >
+                      Browse Files
+                    </button>
+                    <p className="text-gray-600 text-xs mt-4">
+                      WAV, MP3, OGG, FLAC, M4A, AAC, WebM supported
+                    </p>
+                  </>
+                )}
+              </div>
+              
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  onClick={() => setShowUploadDialog(false)}
+                  disabled={isUploading}
+                  className="px-4 py-2 bg-gray-800 text-gray-400 rounded hover:bg-gray-700 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

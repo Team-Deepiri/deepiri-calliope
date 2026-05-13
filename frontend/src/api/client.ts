@@ -235,3 +235,94 @@ export async function processWithPluginChain(
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
+
+export async function uploadAudioClip(
+  file: File,
+  name?: string,
+  category = "reference",
+  description?: string,
+): Promise<{
+  clip_id: string;
+  name: string;
+  filename: string;
+  category: string;
+  duration_sec: number;
+  sample_rate: number;
+  channels: number;
+}> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (name) formData.append("name", name);
+  formData.append("category", category);
+  if (description) formData.append("description", description);
+
+  const r = await fetch(`${base}/v1/music/clips/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function listAudioClips(
+  category?: string,
+  search?: string,
+): Promise<{ clips: AudioClip[]; total: number }> {
+  const params = new URLSearchParams();
+  if (category) params.append("category", category);
+  if (search) params.append("search", search);
+
+  const r = await fetch(`${base}/v1/music/clips?${params}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getAudioClip(clipId: string): Promise<AudioClip> {
+  const r = await fetch(`${base}/v1/music/clips/${clipId}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function deleteAudioClip(clipId: string): Promise<void> {
+  const r = await fetch(`${base}/v1/music/clips/${clipId}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+}
+
+export async function analyzeAudioClip(clipId: string): Promise<{
+  clip_id: string;
+  tempo_bpm: number;
+  tempo_confidence: number;
+  duration_sec: number;
+  rms_dbfs: number;
+  peak_dbfs: number;
+  spectral_centroid: number;
+  spectral_rolloff: number;
+  spectral_flatness: number;
+  zero_crossing_rate: number;
+}> {
+  const r = await fetch(`${base}/v1/music/clips/${clipId}/analyze`, { method: "POST" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function extractAudioFeatures(
+  clipId: string,
+  featureType: "melody" | "rhythm" | "timbre" = "melody",
+): Promise<Record<string, unknown>> {
+  const r = await fetch(`${base}/v1/music/clips/${clipId}/extract?feature_type=${featureType}`, {
+    method: "POST",
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export interface AudioClip {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  duration_sec: number;
+  sample_rate: number;
+  channels: number;
+  format: string;
+}
