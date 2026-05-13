@@ -1,9 +1,11 @@
 from calliope.config import Settings, get_settings
 from calliope.providers import anthropic_provider, ollama_provider, openai_provider, openrouter_provider
 from calliope.providers.types import RouterProvider
-from calliope.services.prompts import MUSIC_SYSTEM_PROMPT
-
-_USER_SUFFIX = "\n\nRespond with sections: Tempo, Harmony, Texture, Arrangement notes."
+from calliope.services.prompt_builder import (
+    Depth,
+    build_system_prompt,
+    build_user_payload,
+)
 
 
 def infer_provider_from_model(model: str) -> RouterProvider:
@@ -71,7 +73,7 @@ def resolve_route(
 
 
 class ModelRouter:
-    """Dispatches music-plan prompts to Ollama, OpenAI, Anthropic, or OpenRouter."""
+    """Dispatches enriched music prompts to Ollama, OpenAI, Anthropic, or OpenRouter."""
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
@@ -82,31 +84,40 @@ class ModelRouter:
         *,
         model: str | None = None,
         provider: RouterProvider = RouterProvider.AUTO,
+        depth: Depth = "standard",
+        genre: str | None = None,
+        bpm_hint: int | None = None,
     ) -> tuple[str, str, str]:
         resolved, model_id = resolve_route(self._settings, provider=provider, model=model)
-        user = f"User brief:\n{user_prompt}{_USER_SUFFIX}"
+        system = build_system_prompt(depth)
+        user = build_user_payload(
+            user_prompt,
+            depth=depth,
+            genre_override=genre,
+            bpm_override=bpm_hint,
+        )
 
         if resolved is RouterProvider.OLLAMA:
             text = await ollama_provider.complete_chat(
-                self._settings, model=model_id, system=MUSIC_SYSTEM_PROMPT, user=user
+                self._settings, model=model_id, system=system, user=user
             )
             return text, model_id, resolved.value
 
         if resolved is RouterProvider.OPENAI:
             text = await openai_provider.complete_chat(
-                self._settings, model=model_id, system=MUSIC_SYSTEM_PROMPT, user=user
+                self._settings, model=model_id, system=system, user=user
             )
             return text, model_id, resolved.value
 
         if resolved is RouterProvider.ANTHROPIC:
             text = await anthropic_provider.complete_chat(
-                self._settings, model=model_id, system=MUSIC_SYSTEM_PROMPT, user=user
+                self._settings, model=model_id, system=system, user=user
             )
             return text, model_id, resolved.value
 
         if resolved is RouterProvider.OPENROUTER:
             text = await openrouter_provider.complete_chat(
-                self._settings, model=model_id, system=MUSIC_SYSTEM_PROMPT, user=user
+                self._settings, model=model_id, system=system, user=user
             )
             return text, model_id, resolved.value
 

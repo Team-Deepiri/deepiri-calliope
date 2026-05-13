@@ -14,12 +14,15 @@ async def generate_plan(body: GenerateRequest) -> GenerateResponse:
             body.prompt,
             model=body.model,
             provider=body.provider,
+            depth=body.depth,
+            genre=body.genre,
+            bpm_hint=body.bpm_hint,
         )
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"upstream LLM error: {e!s}") from e
-    return GenerateResponse(model=model_id, response=text, provider=prov)
+    return GenerateResponse(model=model_id, response=text, provider=prov, depth=body.depth)
 
 
 @router.get("/v1/router/providers", response_model=RouterProvidersResponse)

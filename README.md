@@ -28,10 +28,14 @@ The `netlify.toml` builds the Vite app in `frontend/` and publishes `frontend/di
 
 - `provider`: `auto` (default), `ollama`, `openai`, `anthropic`, or `openrouter`
 - `model`: optional; if omitted with `auto`, `DEFAULT_LLM_PROVIDER` selects the backend and its default model
+- `depth`: `standard` or `deep` (deep asks the model for a closing fenced `calliope-json` block for tooling)
+- `genre`, `bpm_hint`: optional overrides folded into deterministic analysis before the LLM call
 
 With `provider=auto` and a `model` set, the backend infers the provider from the id (e.g. `gpt-*` → OpenAI, `claude-*` → Anthropic, `vendor/model` → OpenRouter, `ollama/mistral` → Ollama).
 
 `GET /v1/router/providers` returns which API keys are configured (booleans only).
+
+`POST /v1/music/analyze` runs **deterministic** brief analysis (tempo/genre/swing/energy + bar scaffold) with **no LLM**.
 
 Set keys in `.env` (see `.env.example`).
 
