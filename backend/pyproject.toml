@@ -24,6 +24,7 @@ numpy = "^2.4.4"
 scikit-learn = "^1.8.0"
 joblib = "^1.5.3"
 pandas = "^3.0.3"
+scipy = "^1.15.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
