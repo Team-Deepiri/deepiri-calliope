@@ -10,7 +10,7 @@ from calliope.config import get_settings
 from calliope.db import init_db
 from calliope.integrations.synapse_stub import log_synapse_style_banner
 from calliope.middleware.request_id import RequestIdMiddleware
-from calliope.routes import aamati, generate, health, jobs, music, ollama as ollama_routes, science, voice
+from calliope.routes import aamati, generate, health, jobs, music, ollama as ollama_routes, science, voice, recordings, plugins, websocket
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log_synapse_style_banner()
     await init_db()
+    settings = get_settings()
+    settings.ensure_directories()
     yield
 
 
@@ -48,6 +50,9 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(science.router)
     app.include_router(voice.router)
+    app.include_router(recordings.router)
+    app.include_router(plugins.router)
+    app.include_router(websocket.router)
     return app
 
 

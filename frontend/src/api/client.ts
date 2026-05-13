@@ -1,4 +1,5 @@
 import type { VocalRackPayload } from "../types/vocalRack";
+import type { RecordingSession, RecordingFile, PluginInfo, AutotuneConfig } from "../types/audio";
 
 const base = "";
 
@@ -133,4 +134,104 @@ export async function alignAamati(text: string) {
     onnx_mood: string | null;
     onnx_probabilities: Record<string, number> | null;
   }>;
+}
+
+export async function createRecordingSession(name: string, sampleRate = 48000, channels = 2): Promise<RecordingSession> {
+  const r = await fetch(`${base}/v1/recordings/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, sample_rate: sampleRate, channels }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<RecordingSession>;
+}
+
+export async function getRecordingSession(sessionId: string): Promise<RecordingSession> {
+  const r = await fetch(`${base}/v1/recordings/sessions/${sessionId}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<RecordingSession>;
+}
+
+export async function uploadRecordingFile(
+  sessionId: string,
+  file: File,
+  trackType = "vocal",
+): Promise<{ recording_id: string; filename: string; duration_sec: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("track_type", trackType);
+
+  const r = await fetch(`${base}/v1/recordings/sessions/${sessionId}/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function listSessionFiles(sessionId: string): Promise<RecordingFile[]> {
+  const r = await fetch(`${base}/v1/recordings/sessions/${sessionId}/files`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<RecordingFile[]>;
+}
+
+export async function processRecording(
+  recordingId: string,
+  sessionId: string,
+  vocalRack?: VocalRackPayload,
+): Promise<{
+  output_file: string;
+  duration_sec: number;
+  sample_rate: number;
+  metrics: Record<string, number>;
+}> {
+  const body: Record<string, unknown> = { recording_id: recordingId, session_id: sessionId };
+  if (vocalRack) body.vocal_rack = vocalRack;
+
+  const r = await fetch(`${base}/v1/recordings/process`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function applyAutotune(
+  recordingId: string,
+  sessionId: string,
+  config: AutotuneConfig,
+): Promise<{
+  output_file: string;
+  original_f0: number[];
+  corrected_f0: number[];
+  confidence: number[];
+  correction_amount_cents: number[];
+}> {
+  const r = await fetch(`${base}/v1/plugins/autotune/process?recording_id=${recordingId}&session_id=${sessionId}&mode=${config.mode}&scale_type=${config.scale_type}&root_midi=${config.root_midi}&strength=${config.strength}&speed=${config.speed}&formant_correction=${config.formant_correction}`, {
+    method: "POST",
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function listPlugins(category?: string): Promise<{ plugins: PluginInfo[]; categories: string[] }> {
+  const url = category ? `${base}/v1/plugins/list?category=${category}` : `${base}/v1/plugins/list`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<{ plugins: PluginInfo[]; categories: string[] }>;
+}
+
+export async function processWithPluginChain(
+  samples: number[],
+  sr: number,
+  plugins: { plugin_name: string; parameters: { name: string; value: number }[]; enabled: boolean; mix: number }[],
+): Promise<{ samples: number[]; sample_rate: number; length: number }> {
+  const r = await fetch(`${base}/v1/plugins/chain/process`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ samples, sr, chain: { plugins } }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }

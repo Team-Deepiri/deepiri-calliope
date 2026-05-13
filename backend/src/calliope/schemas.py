@@ -304,3 +304,99 @@ class VoiceProcessOut(BaseModel):
     sample_rate: int
     metrics: dict[str, float]
     truncated: bool = False
+
+
+# --- Recording Session Management ---
+
+
+class RecordingSessionCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    sample_rate: int = Field(48000, ge=8000, le=96000)
+    channels: int = Field(2, ge=1, le=8)
+
+
+class RecordingSessionOut(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    sample_rate: int
+    channels: int
+    status: str
+    file_count: int
+    duration_sec: float
+
+
+class RecordingUploadResponse(BaseModel):
+    recording_id: str
+    session_id: str
+    filename: str
+    duration_sec: float
+    sample_rate: int
+    channels: int
+
+
+class PluginParameterValue(BaseModel):
+    name: str
+    value: float
+
+
+class PluginInstanceIn(BaseModel):
+    plugin_name: str
+    parameters: list[PluginParameterValue] = Field(default_factory=list)
+    enabled: bool = True
+    mix: float = 1.0
+
+
+class PluginChainIn(BaseModel):
+    plugins: list[PluginInstanceIn] = Field(default_factory=list)
+
+
+class RecordingProcessRequest(BaseModel):
+    recording_id: str
+    session_id: str
+    vocal_rack: VocalRackIn | None = None
+    plugin_chain: PluginChainIn | None = None
+    autotune: bool = False
+    autotune_config: dict | None = None
+    output_format: Literal["wav", "mp3", "ogg", "flac"] = "wav"
+
+
+class RecordingProcessResponse(BaseModel):
+    recording_id: str
+    output_file: str
+    duration_sec: float
+    sample_rate: int
+    metrics: dict[str, float]
+
+
+class AutotuneConfigIn(BaseModel):
+    mode: Literal["auto", "hard", "soft", "melodic"] = "auto"
+    scale_type: Literal[
+        "major", "minor", "harmonic_minor", "melodic_minor",
+        "dorian", "mixolydian", "blues", "pentatonic_major", "pentatonic_minor", "chromatic"
+    ] = "major"
+    root_midi: int = Field(60, ge=0, le=127)
+    strength: float = Field(1.0, ge=0.0, le=1.0)
+    speed: float = Field(0.5, ge=0.0, le=1.0)
+    formant_correction: bool = True
+    formant_preserve: float = Field(0.5, ge=0.0, le=1.0)
+
+
+class AutotuneProcessRequest(BaseModel):
+    recording_id: str
+    session_id: str
+    config: AutotuneConfigIn
+
+
+class AutotuneProcessResponse(BaseModel):
+    recording_id: str
+    output_file: str
+    original_f0: list[float]
+    corrected_f0: list[float]
+    confidence: list[float]
+    correction_amount_cents: list[float]
+
+
+class PluginListResponse(BaseModel):
+    plugins: list[dict]
+    categories: list[str]

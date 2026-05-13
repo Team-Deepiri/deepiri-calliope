@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +11,16 @@ class Settings(BaseSettings):
     ollama_model: str = "mistral"
     aamati_root: str = "/opt/Aamati/aamati_ml"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    audio_storage_path: Path = Path("/data/audio")
+    recordings_path: Path = Path("/data/audio/recordings")
+    processed_path: Path = Path("/data/audio/processed")
+    exports_path: Path = Path("/data/audio/exports")
+
+    max_upload_size_mb: int = 100
+    supported_audio_formats: list[str] = ["wav", "mp3", "ogg", "flac", "m4a", "aac"]
+    default_sample_rate: int = 48000
+    default_bit_depth: int = 24
 
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
@@ -27,6 +39,10 @@ class Settings(BaseSettings):
             "openrouter": bool(self.openrouter_api_key),
             "ollama": True,
         }.get(name.lower(), False)
+
+    def ensure_directories(self) -> None:
+        for path in [self.recordings_path, self.processed_path, self.exports_path]:
+            path.mkdir(parents=True, exist_ok=True)
 
 
 def get_settings() -> Settings:
