@@ -638,3 +638,122 @@ export async function applyExportPreset(
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
+
+export async function autoMixRecording(
+  recordingId: string,
+  sessionId: string | undefined,
+  targetLufs = -14,
+  brightness = 0.5,
+  warmth = 0.3,
+  punch = 0.5,
+  stereoWidth = 1.0,
+): Promise<{
+  output_file: string;
+  input_rms_dbfs: number;
+  output_rms_dbfs: number;
+  dynamic_range_change_db: number;
+}> {
+  const body: Record<string, unknown> = {
+    recording_id: recordingId,
+    target_lufs: targetLufs,
+    brightness,
+    warmth,
+    punch,
+    stereo_width: stereoWidth,
+  };
+  if (sessionId) body.session_id = sessionId;
+
+  const r = await fetch(`${base}/v1/ai-mix/auto-mix`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function autoMasterRecording(
+  recordingId: string,
+  sessionId: string | undefined,
+  style = "balanced",
+): Promise<{
+  output_file: string;
+  input_lufs: number;
+  output_lufs: number;
+}> {
+  const body: Record<string, unknown> = { recording_id: recordingId, style };
+  if (sessionId) body.session_id = sessionId;
+
+  const r = await fetch(`${base}/v1/ai-mix/auto-master`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export interface SynthPreset {
+  name: string;
+  oscillators: number;
+  filter: string;
+}
+
+export async function listSynthPresets(): Promise<{ presets: SynthPreset[] }> {
+  const r = await fetch(`${base}/v1/synth/presets`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function generateSynthNote(
+  preset: string,
+  midiNote: number,
+  duration: number,
+  velocity = 1.0,
+): Promise<{
+  frequency_hz: number;
+  duration_sec: number;
+  output_file: string;
+}> {
+  const r = await fetch(`${base}/v1/synth/generate/note`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ preset, midi_note: midiNote, duration, velocity }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export interface MonitoringData {
+  level: {
+    level_dbfs: number;
+    peak_dbfs: number;
+    segments: string[];
+    level_percent: number;
+  };
+  vu: {
+    left_vu: number;
+    right_vu: number;
+  };
+  loudness: {
+    integrated_lufs: number;
+    short_term_lufs: number;
+    momentary_lufs: number;
+  };
+  stereo: {
+    correlation: number;
+    width: number;
+  };
+}
+
+export async function getMonitoringData(
+  recordingId: string,
+  sessionId?: string,
+): Promise<MonitoringData> {
+  const params = new URLSearchParams({ recording_id: recordingId });
+  if (sessionId) params.append("session_id", sessionId);
+
+  const r = await fetch(`${base}/v1/monitor/recording/${recordingId}?${params}`);
+  if (!r.ok) throw new Error(await r.text());
+  return (await r.json()).monitoring as MonitoringData;
+}
