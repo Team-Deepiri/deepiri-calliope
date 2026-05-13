@@ -10,7 +10,7 @@ from calliope.config import get_settings
 from calliope.db import init_db
 from calliope.integrations.synapse_stub import log_synapse_style_banner
 from calliope.middleware.request_id import RequestIdMiddleware
-from calliope.routes import aamati, generate, health, jobs, music, ollama as ollama_routes, science
+from calliope.routes import aamati, generate, health, jobs, music, ollama as ollama_routes, science, voice
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(music.router)
     app.include_router(jobs.router)
     app.include_router(science.router)
+    app.include_router(voice.router)
     return app
 
 

@@ -1,4 +1,4 @@
-"""Voice-oriented descriptors (coarse / educational)."""
+"""Voice-oriented analysis descriptors (lightweight imports)."""
 
 from calliope.voice.band_energy import band_energy_ratios
 from calliope.voice.spectral_tilt import spectral_tilt_db_per_oct

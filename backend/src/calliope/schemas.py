@@ -257,3 +257,44 @@ class ScienceOnsetsOut(BaseModel):
     onset_frame_indices: list[int]
     hop_samples: int
     n_fft: int
+
+
+# --- Calliope Voice Unit (full rack DSP) ---
+
+
+class VoiceProcessIn(BaseModel):
+    """Mono float samples + `VocalRackIn` controls for the Calliope Voice Unit."""
+
+    samples: list[float] = Field(default_factory=list)
+    sample_rate: int = Field(48_000, ge=8_000, le=96_000)
+    demo_tone_hz: float | None = Field(
+        default=220.0,
+        ge=20.0,
+        le=4_000.0,
+        description="If `samples` is empty, process a short sine preview at this frequency.",
+    )
+    rack: VocalRackIn = Field(default_factory=VocalRackIn)
+    output_stereo: bool = Field(True, description="If true, return interleaved stereo from spatial widening.")
+    max_return_samples: int = Field(
+        96_000,
+        ge=512,
+        le=480_000,
+        description="Truncate each channel to this length from the start (JSON size guard).",
+    )
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("samples")
+    @classmethod
+    def _cap_voice_samples(cls, v: list[float]) -> list[float]:
+        if len(v) > 480_000:
+            raise ValueError("samples: at most 480000 points")
+        return v
+
+
+class VoiceProcessOut(BaseModel):
+    channel_left: list[float]
+    channel_right: list[float]
+    sample_rate: int
+    metrics: dict[str, float]
+    truncated: bool = False
