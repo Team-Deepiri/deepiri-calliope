@@ -598,3 +598,43 @@ export async function importMidiFile(
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
+
+export interface ExportPreset {
+  type: string;
+  format: string;
+  sample_rate: number;
+  bit_depth: number;
+  channels: number;
+  bitrate: number | null;
+  loudness_target: number | null;
+}
+
+export async function listExportPresets(): Promise<{ presets: ExportPreset[] }> {
+  const r = await fetch(`${base}/v1/export/presets`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function applyExportPreset(
+  recordingId: string,
+  presetType: string,
+  sessionId?: string,
+): Promise<{
+  output_file: string;
+  preset: string;
+  format: string;
+  sample_rate: number;
+  duration_sec: number;
+  size_bytes: number;
+}> {
+  const body: Record<string, unknown> = { recording_id: recordingId, preset_type: presetType };
+  if (sessionId) body.session_id = sessionId;
+
+  const r = await fetch(`${base}/v1/export/apply-preset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
