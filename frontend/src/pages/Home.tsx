@@ -1,7 +1,29 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Loader2, Server, Waves } from "lucide-react";
+import { Link } from "react-router-dom";
+import {
+  Activity,
+  ArrowRight,
+  Brain,
+  Cpu,
+  GitBranch,
+  Loader2,
+  Mic2,
+  Server,
+  Sparkles,
+  Waves,
+  Zap,
+} from "lucide-react";
 import { fetchHealth, fetchOllamaStatus, fetchRouterProviders } from "../api/client";
+
+function StatusChip({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <span className={`home-status-chip ${ok ? "is-ok" : "is-warn"}`}>
+      <span className="home-status-chip__dot" />
+      {label}
+    </span>
+  );
+}
 
 export function Home() {
   const [health, setHealth] = useState<string>("…");
@@ -34,19 +56,125 @@ export function Home() {
     })();
   }, []);
 
-  return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
-      <div className="gradient-strip" style={{ maxWidth: 220, marginBottom: "1.25rem" }} />
-      <h1 className="section-title">
-        Ship ideas with <span className="gradient-text">Calliope</span>
-      </h1>
-      <p className="lead mt-sm">
-        Deterministic brief analysis, arrangement scaffolding, harmony palettes, and a multi-provider LLM router
-        (Ollama, OpenAI, Anthropic, OpenRouter) — styled after the Deepiri web shell.
-      </p>
+  let routerParsed: { openai?: boolean; anthropic?: boolean; ollama?: boolean; openrouter?: boolean } | null = null;
+  try {
+    routerParsed = JSON.parse(router) as typeof routerParsed;
+  } catch {
+    routerParsed = null;
+  }
 
-      <div className="grid-2 mt-lg">
-        <div className="glass-panel stack" style={{ padding: "1.25rem" }}>
+  const healthOk = health !== "unreachable" && health !== "…";
+  const routerOk = router !== "unreachable" && router !== "…";
+  const ollamaOk = ollama !== "unreachable" && ollama !== "…";
+
+  return (
+    <motion.div className="home-overview" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+      <section className="home-hero">
+        <div className="home-hero__glow" />
+        <div className="gradient-strip home-hero__strip" />
+        <h1 className="home-hero__title">
+          Ship ideas with <span className="gradient-text">Calliope</span>
+        </h1>
+        <p className="home-hero__subtitle">
+          A Deepiri-styled control room for music briefs: deterministic intel, arrangement scaffolding, harmony hints,
+          optional Aamati mood priors, and a multi-provider LLM router — now with a Studio vocal rack that steers how the
+          architect talks about vocals, FX, and mix placement.
+        </p>
+        <div className="home-hero__actions">
+          <Link to="/studio" className="btn-modern btn-primary home-cta">
+            Open Studio <ArrowRight size={18} />
+          </Link>
+          <Link to="/pipeline" className="btn-modern btn-ghost home-cta home-cta--ghost">
+            Pipeline <GitBranch size={18} />
+          </Link>
+        </div>
+        <div className="home-hero__chips">
+          <StatusChip ok={healthOk} label="API" />
+          <StatusChip ok={routerOk} label="Router" />
+          <StatusChip ok={ollamaOk} label="Ollama" />
+        </div>
+      </section>
+
+      <section className="home-bento">
+        <article className="home-card home-card--wide glass-panel">
+          <div className="home-card__icon">
+            <Activity size={22} />
+          </div>
+          <h2 className="home-card__title">Live overview</h2>
+          <p className="home-card__text">Health, model router flags, and local Ollama in one glance. Details stay in the panels below.</p>
+        </article>
+
+        <article className="home-card glass-panel">
+          <div className="home-card__icon home-card__icon--cyan">
+            <Brain size={22} />
+          </div>
+          <h2 className="home-card__title">Music intel</h2>
+          <p className="home-card__text">
+            Tempo inference, genre tags, swing bias, energy and section lengths — computed before any LLM call.
+          </p>
+        </article>
+
+        <article className="home-card glass-panel">
+          <div className="home-card__icon home-card__icon--violet">
+            <Mic2 size={22} />
+          </div>
+          <h2 className="home-card__title">Vocal rack</h2>
+          <p className="home-card__text">
+            Rotary controls for air, body, de-esser, space, tuning, and more. Toggle inject to fold targets into the architect
+            payload.
+          </p>
+        </article>
+
+        <article className="home-card glass-panel">
+          <div className="home-card__icon home-card__icon--amber">
+            <Zap size={22} />
+          </div>
+          <h2 className="home-card__title">Multi-LLM</h2>
+          <p className="home-card__text">Ollama, OpenAI, Anthropic, or OpenRouter — pick a provider or let Auto route from the model id.</p>
+        </article>
+
+        <article className="home-card home-card--tall glass-panel">
+          <div className="home-card__icon home-card__icon--indigo">
+            <Sparkles size={22} />
+          </div>
+          <h2 className="home-card__title">Architect depth</h2>
+          <p className="home-card__text">
+            Standard mode returns tight markdown sections. Deep mode appends a machine-readable JSON tail for tooling and QA.
+          </p>
+          <ul className="home-mini-list">
+            <li>Harmony palette lines from genre</li>
+            <li>Bar scaffold from energy &amp; complexity</li>
+            <li>Aamati mood block when priors are available</li>
+          </ul>
+        </article>
+
+        <article className="home-card glass-panel">
+          <div className="home-card__icon home-card__icon--teal">
+            <Waves size={22} />
+          </div>
+          <h2 className="home-card__title">Router surface</h2>
+          <p className="home-card__text">
+            Keys surface only as booleans on <code className="home-code">/v1/router/providers</code>. Defaults show which model ids ship first.
+          </p>
+          {routerParsed && (
+            <div className="home-router-pills">
+              {routerParsed.openai !== undefined && (
+                <span className={`home-pill ${routerParsed.openai ? "on" : ""}`}>OpenAI</span>
+              )}
+              {routerParsed.anthropic !== undefined && (
+                <span className={`home-pill ${routerParsed.anthropic ? "on" : ""}`}>Anthropic</span>
+              )}
+              {routerParsed.openrouter !== undefined && (
+                <span className={`home-pill ${routerParsed.openrouter ? "on" : ""}`}>OpenRouter</span>
+              )}
+              <span className={`home-pill ${routerParsed.ollama ? "on" : ""}`}>Ollama</span>
+            </div>
+          )}
+        </article>
+      </section>
+
+      <div className="grid-2 mt-lg home-status-grid">
+        <div className="glass-panel stack home-status-panel" style={{ padding: "1.25rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <Server size={20} color="#818cf8" />
             <h2 className="section-title" style={{ fontSize: "1.1rem", margin: 0 }}>
@@ -54,23 +182,23 @@ export function Home() {
             </h2>
           </div>
           <p className="lead" style={{ fontSize: "0.85rem" }}>
-            FastAPI + Postgres jobs + optional cloud keys. Use Studio for single-shot plans or Pipeline for analyze →
-            deep generate.
+            FastAPI + Postgres jobs + optional cloud keys. Studio is the single-shot console; Pipeline runs analyze → Aamati →
+            generate in steps.
           </p>
-          <div className="mono-block">{loading ? "Loading…" : health}</div>
+          <div className="mono-block home-mono">{loading ? "Loading…" : health}</div>
         </div>
 
-        <div className="glass-panel stack" style={{ padding: "1.25rem" }}>
+        <div className="glass-panel stack home-status-panel" style={{ padding: "1.25rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Waves size={20} color="#22d3ee" />
+            <Cpu size={20} color="#22d3ee" />
             <h2 className="section-title" style={{ fontSize: "1.1rem", margin: 0 }}>
-              Model router
+              Model router JSON
             </h2>
           </div>
           <p className="lead" style={{ fontSize: "0.85rem" }}>
-            Keys never leave booleans in <code>/v1/router/providers</code>. Configure in <code>.env</code> for Docker.
+            Configure providers in <code className="home-code">.env</code> for Docker Compose. This block is the raw router payload.
           </p>
-          <div className="mono-block">{loading ? <Loader2 className="animate-spin" size={18} /> : router}</div>
+          <div className="mono-block home-mono">{loading ? <Loader2 className="animate-spin" size={18} /> : router}</div>
         </div>
       </div>
 
@@ -78,7 +206,7 @@ export function Home() {
         <h2 className="section-title" style={{ fontSize: "1.1rem" }}>
           Ollama runtime
         </h2>
-        <div className="mono-block">{loading ? "…" : ollama}</div>
+        <div className="mono-block home-mono">{loading ? "…" : ollama}</div>
       </div>
     </motion.div>
   );
