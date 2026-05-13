@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Cpu, Sparkles, SlidersHorizontal } from "lucide-react";
+import { Cpu, Radio, Sparkles, SlidersHorizontal } from "lucide-react";
 import { generatePlan, type GenerateDepth, type RouterProvider } from "../api/client";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
+import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
 import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
 
 const PROVIDERS: { value: RouterProvider; label: string }[] = [
@@ -60,8 +61,8 @@ export function Studio() {
           <div>
             <h1 className="section-title studio-hero__title">Studio console</h1>
             <p className="lead mt-sm studio-hero__lead">
-              Brief plus deterministic analysis feeds the architect. Dial a vocal chain with the rack — values are
-              injected into the prompt as production targets when inject is on.
+              Architect console + <strong>Calliope Voice Unit</strong>: rack drives both the LLM prompt (inject) and the
+              live numpy DSP preview — EQ, dynamics, tune, formant, space, and stereo motion in one column.
             </p>
           </div>
           <div className="studio-hero__tags">
@@ -69,7 +70,7 @@ export function Studio() {
               <Cpu size={14} /> Router
             </span>
             <span className="studio-tag">
-              <SlidersHorizontal size={14} /> Rack
+              <Radio size={14} /> Voice DSP
             </span>
           </div>
         </div>
@@ -148,10 +149,11 @@ export function Studio() {
           </div>
         </section>
 
-        <aside className="studio-col studio-col--rack">
+        <aside className="studio-col studio-col--rack studio-rack-stack">
           <div className="glass-panel studio-panel vocal-rack-outer" style={{ padding: "1.15rem 1.1rem 1.35rem" }}>
             <VocalRackPanel value={vocalRack} onChange={setVocalRack} injectEnabled={vocalInject} onInjectChange={setVocalInject} />
           </div>
+          <VoiceDspPanel rack={vocalRack} sampleRate={48_000} />
         </aside>
       </div>
     </motion.div>

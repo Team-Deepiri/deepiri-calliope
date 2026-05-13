@@ -59,16 +59,29 @@ def process_voice_unit(
     if p.bypass_chain:
         y = dry.copy()
         y = dynamics.soft_limiter(y, threshold=0.96, knee=0.06)
-        out = stereo_fx.stereo_widen_mono(y, float(sr), width=0.08, haas_ms=0.0) if output_stereo else y
+        out = (
+            stereo_fx.stereo_widen_mono(y, float(sr), width=0.08, haas_ms=0.0, chorus_amount=0.0)
+            if output_stereo
+            else y
+        )
         rms_out = integrated_rms_db(out[:, 0] if out.ndim == 2 else out)
         peak_out = float(np.max(np.abs(out)))
-        return out, VoiceProcessReport(rms_in, rms_out, peak_in, peak_out, True)
+        return out, VoiceProcessReport(
+            rms_in_dbfs=rms_in,
+            rms_out_dbfs=rms_out,
+            peak_in=peak_in,
+            peak_out=peak_out,
+            bypassed=True,
+        )
 
     y = signal.sosfilt(biquad.sos_highpass(float(sr), p.hp_hz, order=2), dry)
     y = tilt.tone_tilt(y, float(sr), body_db=p.body_db, air_db=p.air_db)
     if abs(p.presence_db) > 0.35:
         sos = biquad.sos_presence_peak(float(sr), 3200.0, 1.1, p.presence_db)
         y = signal.sosfilt(sos, y)
+    if abs(p.brilliance_extra_db) > 0.35:
+        sos_hi = biquad.sos_presence_peak(float(sr), 9800.0, 0.85, p.brilliance_extra_db * 0.65)
+        y = signal.sosfilt(sos_hi, y)
     y = gate.noise_gate(y, float(sr), threshold_db=p.gate_threshold_db)
     y = dynamics.compressor_mono(
         y,
@@ -76,8 +89,8 @@ def process_voice_unit(
         threshold_db=p.comp_threshold_db,
         ratio=p.comp_ratio,
         makeup_db=p.comp_makeup_db,
-        attack_ms=9.0,
-        release_ms=130.0,
+        attack_ms=p.comp_attack_ms,
+        release_ms=p.comp_release_ms,
     )
     y = deesser.deesser_mono(y, float(sr), amount=p.deesser_amount)
 
@@ -93,6 +106,21 @@ def process_voice_unit(
         y = blend_dry_wet(y, yf, fb)
 
     y = saturation.tape_tube_saturation(y, p.drive, mix=0.92)
+    if p.parallel_grit > 0.02:
+        hp_sos = biquad.sos_highpass(float(sr), 900.0, order=2)
+        grit_src = signal.sosfilt(hp_sos, dry)
+        grit = dynamics.compressor_mono(
+            grit_src,
+            float(sr),
+            threshold_db=-34.0,
+            ratio=6.0,
+            makeup_db=2.0,
+            attack_ms=3.0,
+            release_ms=80.0,
+        )
+        grit = saturation.tape_tube_saturation(grit, min(2.8, p.drive + 0.8), mix=1.0)
+        y = blend_dry_wet(y, grit, p.parallel_grit)
+
     wet_r = reverb.schroeder_reverb_mono(y, float(sr), wet=p.reverb_wet, t60=p.reverb_t60)
     wet_d = delay_fx.feedback_delay_mono(y, float(sr), time_ms=p.delay_ms, feedback=p.delay_feedback, wet=p.delay_wet)
     y = y + wet_r + wet_d
@@ -102,7 +130,13 @@ def process_voice_unit(
     peak_out = float(np.max(np.abs(y)))
 
     if output_stereo:
-        out = stereo_fx.stereo_widen_mono(y, float(sr), width=p.width, haas_ms=p.haas_ms)
+        out = stereo_fx.stereo_widen_mono(
+            y,
+            float(sr),
+            width=p.width,
+            haas_ms=p.haas_ms,
+            chorus_amount=p.chorus_amount,
+        )
     else:
         out = y
 

@@ -34,6 +34,12 @@ class VocalRackIn(BaseModel):
     delay_throw: int = Field(18, ge=0, le=100, description="Slap / 1/8-dotted throws on tails or phrases")
     tune_tightness: int = Field(74, ge=0, le=100, description="Pitch correction transparency vs obvious effect")
     formant_shift: int = Field(50, ge=0, le=100, description="50 neutral; lower darker, higher brighter formants")
+    warmth_low: int = Field(50, ge=0, le=100, description="Low-mid weight / mud vs tight (50 neutral)")
+    brilliance_air: int = Field(48, ge=0, le=100, description="Top octave shine / exciter edge beyond breath")
+    punch_snap: int = Field(52, ge=0, le=100, description="Transient smack vs glue (compressor attack feel)")
+    verb_predelay: int = Field(38, ge=0, le=100, description="Early gap before reverb wash builds")
+    motion_blur: int = Field(22, ge=0, le=100, description="Stereo motion / micro-chorus smear on doubles")
+    grit_parallel: int = Field(26, ge=0, le=100, description="Parallel bite path (distorted air blended under dry)")
 
 
 class HealthResponse(BaseModel):

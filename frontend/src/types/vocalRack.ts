@@ -8,6 +8,7 @@ export type VocalRole =
   | "spoken_wordcut"
   | "vocoder_synth";
 
+/** Full Calliope rack — architect prompt + Voice Unit DSP. */
 export type VocalRackPayload = {
   role: VocalRole;
   breath_air: number;
@@ -20,6 +21,12 @@ export type VocalRackPayload = {
   delay_throw: number;
   tune_tightness: number;
   formant_shift: number;
+  warmth_low: number;
+  brilliance_air: number;
+  punch_snap: number;
+  verb_predelay: number;
+  motion_blur: number;
+  grit_parallel: number;
 };
 
 export const DEFAULT_VOCAL_RACK: VocalRackPayload = {
@@ -34,6 +41,12 @@ export const DEFAULT_VOCAL_RACK: VocalRackPayload = {
   delay_throw: 18,
   tune_tightness: 74,
   formant_shift: 50,
+  warmth_low: 50,
+  brilliance_air: 48,
+  punch_snap: 52,
+  verb_predelay: 38,
+  motion_blur: 22,
+  grit_parallel: 26,
 };
 
 export const VOCAL_ROLE_OPTIONS: { value: VocalRole; label: string; hint: string }[] = [
@@ -49,6 +62,7 @@ export const VOCAL_ROLE_OPTIONS: { value: VocalRole; label: string; hint: string
 
 export const VOCAL_PRESETS: Record<string, VocalRackPayload> = {
   arena_belt: {
+    ...DEFAULT_VOCAL_RACK,
     role: "single_lead",
     breath_air: 22,
     chest_body: 72,
@@ -60,8 +74,15 @@ export const VOCAL_PRESETS: Record<string, VocalRackPayload> = {
     delay_throw: 24,
     tune_tightness: 78,
     formant_shift: 52,
+    warmth_low: 62,
+    brilliance_air: 44,
+    punch_snap: 72,
+    verb_predelay: 28,
+    motion_blur: 18,
+    grit_parallel: 32,
   },
   bedroom_lofi: {
+    ...DEFAULT_VOCAL_RACK,
     role: "whisper_layer",
     breath_air: 62,
     chest_body: 48,
@@ -73,8 +94,15 @@ export const VOCAL_PRESETS: Record<string, VocalRackPayload> = {
     delay_throw: 28,
     tune_tightness: 55,
     formant_shift: 44,
+    warmth_low: 58,
+    brilliance_air: 55,
+    punch_snap: 35,
+    verb_predelay: 55,
+    motion_blur: 38,
+    grit_parallel: 40,
   },
   hyperpop_gloss: {
+    ...DEFAULT_VOCAL_RACK,
     role: "vocoder_synth",
     breath_air: 48,
     chest_body: 40,
@@ -86,8 +114,15 @@ export const VOCAL_PRESETS: Record<string, VocalRackPayload> = {
     delay_throw: 36,
     tune_tightness: 92,
     formant_shift: 68,
+    warmth_low: 42,
+    brilliance_air: 72,
+    punch_snap: 68,
+    verb_predelay: 22,
+    motion_blur: 55,
+    grit_parallel: 22,
   },
   dry_rap_punch: {
+    ...DEFAULT_VOCAL_RACK,
     role: "spoken_wordcut",
     breath_air: 18,
     chest_body: 64,
@@ -99,5 +134,11 @@ export const VOCAL_PRESETS: Record<string, VocalRackPayload> = {
     delay_throw: 10,
     tune_tightness: 62,
     formant_shift: 48,
+    warmth_low: 55,
+    brilliance_air: 32,
+    punch_snap: 78,
+    verb_predelay: 15,
+    motion_blur: 12,
+    grit_parallel: 48,
   },
 };

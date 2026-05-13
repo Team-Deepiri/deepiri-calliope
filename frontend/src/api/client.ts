@@ -2,8 +2,40 @@ import type { VocalRackPayload } from "../types/vocalRack";
 
 const base = "";
 
+export type VoiceProcessResult = {
+  channel_left: number[];
+  channel_right: number[];
+  sample_rate: number;
+  metrics: Record<string, number>;
+  truncated: boolean;
+};
+
 export type RouterProvider = "auto" | "ollama" | "openai" | "anthropic" | "openrouter";
 export type GenerateDepth = "standard" | "deep";
+
+export async function processVoiceUnit(body: {
+  samples: number[];
+  sample_rate: number;
+  demo_tone_hz?: number | null;
+  rack: VocalRackPayload;
+  output_stereo?: boolean;
+  max_return_samples?: number;
+}): Promise<VoiceProcessResult> {
+  const r = await fetch(`${base}/v1/voice/process`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      samples: body.samples,
+      sample_rate: body.sample_rate,
+      demo_tone_hz: body.demo_tone_hz ?? null,
+      rack: body.rack,
+      output_stereo: body.output_stereo ?? true,
+      max_return_samples: body.max_return_samples ?? 96_000,
+    }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<VoiceProcessResult>;
+}
 
 export async function fetchHealth() {
   const r = await fetch(`${base}/health`);

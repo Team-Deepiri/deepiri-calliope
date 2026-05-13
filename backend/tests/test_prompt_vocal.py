@@ -7,7 +7,7 @@ def test_format_vocal_rack_block_contains_knobs():
     s = format_vocal_rack_block(v)
     assert "vocoder_synth" in s
     assert "breath/air 10" in s
-    assert "formant shift 88" in s
+    assert "warmth/low" in s
 
 
 def test_build_user_payload_inserts_vocal_section_heading():

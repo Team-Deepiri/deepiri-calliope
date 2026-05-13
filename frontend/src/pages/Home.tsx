@@ -77,8 +77,9 @@ export function Home() {
         </h1>
         <p className="home-hero__subtitle">
           A Deepiri-styled control room for music briefs: deterministic intel, arrangement scaffolding, harmony hints,
-          optional Aamati mood priors, and a multi-provider LLM router — now with a Studio vocal rack that steers how the
-          architect talks about vocals, FX, and mix placement.
+          optional Aamati mood priors, and a multi-provider LLM router. Studio pairs a modular vocal rack (warmth, brilliance,
+          punch, predelay, motion, parallel grit, and more) with a live voice-DSP preview so you can hear the chain before
+          you brief the architect.
         </p>
         <div className="home-hero__actions">
           <Link to="/studio" className="btn-modern btn-primary home-cta">
@@ -94,6 +95,26 @@ export function Home() {
           <StatusChip ok={ollamaOk} label="Ollama" />
         </div>
       </section>
+
+      <nav className="home-command-deck" aria-label="Primary destinations">
+        <Link to="/studio" className="home-deck-card">
+          <span className="home-deck-card__kicker">Console</span>
+          <span className="home-deck-card__title">Studio</span>
+          <span className="home-deck-card__text">
+            Vocal rack modules, rotaries, presets, and voice-DSP waveform preview wired to the same payload the backend uses.
+          </span>
+        </Link>
+        <Link to="/pipeline" className="home-deck-card">
+          <span className="home-deck-card__kicker">Workflow</span>
+          <span className="home-deck-card__title">Pipeline</span>
+          <span className="home-deck-card__text">Analyze → Aamati priors → generate in stepped jobs with Postgres-backed runs.</span>
+        </Link>
+        <a href="#control-plane" className="home-deck-card">
+          <span className="home-deck-card__kicker">Ops</span>
+          <span className="home-deck-card__title">Control plane</span>
+          <span className="home-deck-card__text">Live health JSON, router flags, and Ollama runtime without leaving the overview.</span>
+        </a>
+      </nav>
 
       <section className="home-bento">
         <article className="home-card home-card--wide glass-panel">
@@ -120,8 +141,8 @@ export function Home() {
           </div>
           <h2 className="home-card__title">Vocal rack</h2>
           <p className="home-card__text">
-            Rotary controls for air, body, de-esser, space, tuning, and more. Toggle inject to fold targets into the architect
-            payload.
+            EQ and tone, dynamics, color and space, pitch — each as a mini module with rotaries. New macro knobs cover warmth,
+            brilliance and air, punch, verb predelay, motion blur, and parallel grit alongside the classic targets.
           </p>
         </article>
 
@@ -173,7 +194,7 @@ export function Home() {
         </article>
       </section>
 
-      <div className="grid-2 mt-lg home-status-grid">
+      <div id="control-plane" className="grid-2 mt-lg home-status-grid">
         <div className="glass-panel stack home-status-panel" style={{ padding: "1.25rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <Server size={20} color="#818cf8" />
