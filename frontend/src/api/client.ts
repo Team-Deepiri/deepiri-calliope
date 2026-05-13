@@ -485,3 +485,116 @@ export async function extractVocals(
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
+
+export interface BatchProcessItem {
+  recording_id: string;
+  session_id?: string;
+  vocal_rack?: Record<string, unknown>;
+  plugins?: Array<{
+    plugin_name: string;
+    parameters?: Record<string, number>;
+  }>;
+  autotune?: Record<string, unknown>;
+  effects?: string[];
+}
+
+export async function batchProcess(
+  items: BatchProcessItem[],
+  parallel = true,
+): Promise<{
+  total: number;
+  successful: number;
+  failed: number;
+  results: Array<{
+    recording_id: string;
+    status: string;
+    output_files?: string[];
+    error?: string;
+  }>;
+}> {
+  const r = await fetch(`${base}/v1/batch/process`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items, parallel }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function batchApplyPreset(
+  recordingIds: string[],
+  sessionId: string | undefined,
+  presetId: string | undefined,
+): Promise<{
+  total: number;
+  successful: number;
+  failed: number;
+  preset_name: string;
+  results: Array<{
+    recording_id: string;
+    status: string;
+    output_file?: string;
+    error?: string;
+  }>;
+}> {
+  const body: Record<string, unknown> = { recording_ids: recordingIds };
+  if (sessionId) body.session_id = sessionId;
+  if (presetId) body.preset_id = presetId;
+
+  const r = await fetch(`${base}/v1/batch/apply-preset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function exportMidiFromRecording(
+  recordingId: string,
+  sessionId: string | undefined,
+  threshold = 0.5,
+): Promise<{
+  recording_id: string;
+  midi_file: string;
+  note_count: number;
+  duration_sec: number;
+  notes: string[];
+}> {
+  const params = new URLSearchParams({ recording_id: recordingId, threshold: threshold.toString() });
+  if (sessionId) params.append("session_id", sessionId);
+
+  const r = await fetch(`${base}/v1/midi/export/audio?${params}`, { method: "POST" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function importMidiFile(
+  fileId: string | undefined,
+  filePath: string | undefined,
+): Promise<{
+  format: number;
+  tracks: number;
+  ticks_per_beat: number;
+  track_data: Array<{
+    events: Array<{
+      time: number;
+      note: number;
+      velocity: number;
+      duration: number;
+    }>;
+    note_count: number;
+  }>;
+}> {
+  const body: Record<string, unknown> = {};
+  if (fileId) body.file_id = fileId;
+  if (filePath) body.file_path = filePath;
+
+  const r = await fetch(`${base}/v1/midi/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
