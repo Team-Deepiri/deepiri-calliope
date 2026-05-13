@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+FROM python:3.12-slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git openssh-client ca-certificates build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN mkdir -p -m 0700 /root/.ssh && ssh-keyscan github.com >> /root/.ssh/known_hosts
+
+RUN --mount=type=ssh \
+    git clone --depth 1 git@github.com:jrb00013/Aamati.git /opt/Aamati
+
+COPY backend/pyproject.toml backend/poetry.lock /app/
+COPY backend/src /app/src
+
+RUN pip install --no-cache-dir poetry==2.2.1 \
+    && poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --only main
+
+ENV PYTHONPATH=/app/src:/opt/Aamati
+EXPOSE 8080
+
+CMD ["uvicorn", "calliope.main:app", "--host", "0.0.0.0", "--port", "8080"]
