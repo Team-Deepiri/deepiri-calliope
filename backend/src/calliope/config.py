@@ -25,11 +25,14 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
     openrouter_api_key: str | None = None
+    gemini_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     openai_default_model: str = "gpt-4o-mini"
     anthropic_default_model: str = "claude-3-5-haiku-20241022"
     openrouter_default_model: str = "meta-llama/llama-3.1-8b-instruct"
+    gemini_default_model: str = "gemini-2.0-flash"
     default_llm_provider: str = "ollama"
 
     def provider_key_configured(self, name: str) -> bool:
@@ -37,6 +40,7 @@ class Settings(BaseSettings):
             "openai": bool(self.openai_api_key),
             "anthropic": bool(self.anthropic_api_key),
             "openrouter": bool(self.openrouter_api_key),
+            "gemini": bool(self.gemini_api_key),
             "ollama": True,
         }.get(name.lower(), False)
 

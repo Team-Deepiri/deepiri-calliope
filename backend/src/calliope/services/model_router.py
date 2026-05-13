@@ -1,5 +1,5 @@
 from calliope.config import Settings, get_settings
-from calliope.providers import anthropic_provider, ollama_provider, openai_provider, openrouter_provider
+from calliope.providers import anthropic_provider, ollama_provider, openai_provider, openrouter_provider, gemini_provider
 from calliope.providers.types import RouterProvider
 from calliope.schemas import VocalRackIn
 from calliope.services.prompt_builder import (
@@ -18,6 +18,8 @@ def infer_provider_from_model(model: str) -> RouterProvider:
         return RouterProvider.ANTHROPIC
     if low.startswith("gpt-") or low.startswith("o1") or low.startswith("o3") or low.startswith("ft:gpt"):
         return RouterProvider.OPENAI
+    if low.startswith("gemini"):
+        return RouterProvider.GEMINI
     if "/" in m:
         return RouterProvider.OPENROUTER
     return RouterProvider.OLLAMA
@@ -39,6 +41,8 @@ def _default_model(provider: RouterProvider, settings: Settings) -> str:
         return settings.anthropic_default_model
     if provider is RouterProvider.OPENROUTER:
         return settings.openrouter_default_model
+    if provider is RouterProvider.GEMINI:
+        return settings.gemini_default_model
     return settings.ollama_model
 
 
@@ -121,6 +125,12 @@ class ModelRouter:
         if resolved is RouterProvider.OPENROUTER:
             text = await openrouter_provider.complete_chat(
                 self._settings, model=model_id, system=system, user=user
+            )
+            return text, model_id, resolved.value
+
+        if resolved is RouterProvider.GEMINI:
+            text = await gemini_provider.complete(
+                prompt=user, model=model_id, system_prompt=system
             )
             return text, model_id, resolved.value
 

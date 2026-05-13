@@ -103,6 +103,7 @@ class RouterProvidersResponse(BaseModel):
     openai: bool
     anthropic: bool
     openrouter: bool
+    gemini: bool
     ollama: bool = True
     defaults: dict[str, str]
 

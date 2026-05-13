@@ -16,6 +16,7 @@ const PROVIDERS: { value: RouterProvider; label: string }[] = [
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
   { value: "openrouter", label: "OpenRouter" },
+  { value: "gemini", label: "Gemini" },
 ];
 
 type StudioTab = "architect" | "vocal_studio" | "plugin_chain" | "clips";

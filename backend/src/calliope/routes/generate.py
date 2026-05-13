@@ -35,6 +35,7 @@ async def router_providers() -> RouterProvidersResponse:
         openai=s.provider_key_configured("openai"),
         anthropic=s.provider_key_configured("anthropic"),
         openrouter=s.provider_key_configured("openrouter"),
+        gemini=s.provider_key_configured("gemini"),
         ollama=True,
         defaults={
             "llm_provider": s.default_llm_provider,
@@ -42,5 +43,6 @@ async def router_providers() -> RouterProvidersResponse:
             "openai_model": s.openai_default_model,
             "anthropic_model": s.anthropic_default_model,
             "openrouter_model": s.openrouter_default_model,
+            "gemini_model": s.gemini_default_model,
         },
     )

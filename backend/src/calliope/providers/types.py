@@ -9,3 +9,4 @@ class RouterProvider(StrEnum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     OPENROUTER = "openrouter"
+    GEMINI = "gemini"

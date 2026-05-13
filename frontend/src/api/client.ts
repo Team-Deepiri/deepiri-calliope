@@ -11,7 +11,7 @@ export type VoiceProcessResult = {
   truncated: boolean;
 };
 
-export type RouterProvider = "auto" | "ollama" | "openai" | "anthropic" | "openrouter";
+export type RouterProvider = "auto" | "ollama" | "openai" | "anthropic" | "openrouter" | "gemini";
 export type GenerateDepth = "standard" | "deep";
 
 export async function processVoiceUnit(body: {
