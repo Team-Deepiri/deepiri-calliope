@@ -10,7 +10,7 @@ from typing import Any, Callable, TypeVar
 import numpy as np
 
 
-TPlugin = TypeVar("TPlugin", bound="AudioPlugin)
+TPlugin = TypeVar("TPlugin", bound="AudioPlugin")
 
 
 class PluginCategory(str, Enum):

@@ -62,7 +62,7 @@ SCALE_INTERVALS: dict[ScaleType, list[int]] = {
     ScaleType.PENTATONIC_MAJOR: [0, 2, 4, 7, 9],
     ScaleType.PENTATONIC_MINOR: [0, 3, 5, 7, 10],
     ScaleType.CHROMATIC: list(range(12)),
-    ScaleType.EQUAL_TEMPERAMENT: list(range(12)),
+    ScaleType.ET: list(range(12)),
 }
 
 

@@ -336,6 +336,12 @@ class AutoPan(AudioPlugin):
             ],
         )
 
+    def process(self, samples: np.ndarray) -> np.ndarray:
+        left = samples.copy()
+        right = samples.copy()
+        l, r = self.process_stereo(left, right)
+        return (l + r) / 2
+
     def process_stereo(self, left: np.ndarray, right: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         rate = float(self.get_parameter("rate"))
         depth = float(self.get_parameter("depth"))
