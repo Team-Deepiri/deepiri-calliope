@@ -1,9 +1,8 @@
 from datetime import datetime
+from typing import Literal, Self
 from uuid import UUID
 
-from typing import Literal
-
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from calliope.providers.types import RouterProvider
 
@@ -174,8 +173,8 @@ class ScienceBufferIn(BaseModel):
     @field_validator("samples")
     @classmethod
     def _cap_samples(cls, v: list[float]) -> list[float]:
-        if len(v) > 240_000:
-            raise ValueError("samples: at most 240000 points")
+        if len(v) > 480_000:
+            raise ValueError("samples: at most 480000 points (~10 s at 48 kHz)")
         return v
 
 
@@ -207,3 +206,54 @@ class ScienceFeaturesOut(BaseModel):
     band_mid: float
     band_high: float
     sample_rate: int
+
+
+class SciencePitchShiftIn(ScienceBufferIn):
+    """Same buffer contract as `ScienceBufferIn` plus global pitch shift in semitones."""
+
+    semitones: float = Field(0.0, ge=-24.0, le=24.0)
+    n_fft: int = Field(2048, ge=256, le=8192)
+    hop_samples: int = Field(512, ge=32, le=2048)
+
+    @model_validator(mode="after")
+    def _hop_lt_nfft(self) -> Self:
+        if self.hop_samples >= self.n_fft:
+            raise ValueError("hop_samples must be less than n_fft")
+        return self
+
+
+class ScienceWaveformOut(BaseModel):
+    samples: list[float]
+    sample_rate: int
+    truncated: bool = False
+
+
+class ScienceAutotuneRenderIn(ScienceBufferIn):
+    """Pitch-correct toward ET or a major scale using YIN + warp map; optional dry/wet blend."""
+
+    strength: float = Field(1.0, ge=0.0, le=1.0, description="Dry/wet mix after full warp path.")
+    warp_exponent: float = Field(
+        1.0,
+        ge=0.0,
+        le=1.0,
+        description="Exponent inside per-frame (f0/target) ratio before smoothing (1 = full correction).",
+    )
+    et_snap: bool = Field(True, description="If true, snap to equal temperament; else use major scale.")
+    major_root_midi: int = Field(60, ge=0, le=127, description="Tonic MIDI note when `et_snap` is false.")
+    max_return_samples: int = Field(
+        96_000,
+        ge=1024,
+        le=480_000,
+        description="Truncate returned waveform to this many samples from the start (JSON size guard).",
+    )
+
+
+class ScienceChromaOut(BaseModel):
+    chroma: list[float]
+    sample_rate: int
+
+
+class ScienceOnsetsOut(BaseModel):
+    onset_frame_indices: list[int]
+    hop_samples: int
+    n_fft: int
