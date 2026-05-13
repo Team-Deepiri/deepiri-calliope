@@ -326,3 +326,162 @@ export interface AudioClip {
   channels: number;
   format: string;
 }
+
+export interface VocalEffectPreset {
+  type: string;
+  name: string;
+  description: string;
+  tags: string[];
+  plugin_count: number;
+}
+
+export interface StudioSession {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  bpm: number;
+  key: string;
+  vocal_rack?: Record<string, unknown>;
+  plugin_chain?: Array<{
+    id: string;
+    plugin_name: string;
+    enabled: boolean;
+    mix: number;
+    parameters: Record<string, number>;
+  }>;
+  autotune_config?: Record<string, unknown>;
+  recordings?: string[];
+  audio_clips?: string[];
+  prompt?: string;
+  generation_settings?: Record<string, unknown>;
+}
+
+export async function listVocalEffectPresets(): Promise<{
+  presets: VocalEffectPreset[];
+  categories: string[];
+}> {
+  const r = await fetch(`${base}/v1/vocal-effects/presets`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function applyVocalEffect(
+  recordingId: string,
+  sessionId: string | undefined,
+  effectType: string,
+  dryWet = 1.0,
+): Promise<{ output_file: string; duration_sec: number }> {
+  const params = new URLSearchParams({
+    recording_id: recordingId,
+    effect_type: effectType,
+    dry_wet: dryWet.toString(),
+  });
+  if (sessionId) params.append("session_id", sessionId);
+
+  const r = await fetch(`${base}/v1/vocal-effects/apply?${params}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function previewVocalEffect(
+  samples: number[],
+  effectType: string,
+  sampleRate = 48000,
+  dryWet = 1.0,
+): Promise<{ samples: number[]; sample_rate: number; duration_sec: number }> {
+  const r = await fetch(`${base}/v1/vocal-effects/preview?effect_type=${effectType}&dry_wet=${dryWet}&sample_rate=${sampleRate}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ samples }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function createStudioSession(
+  name: string,
+  bpm = 120,
+  key = "C",
+): Promise<{ id: string; name: string; bpm: number }> {
+  const r = await fetch(`${base}/v1/sessions/create?name=${encodeURIComponent(name)}&bpm=${bpm}&key=${key}`, {
+    method: "POST",
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function listStudioSessions(search?: string): Promise<{ sessions: StudioSession[] }> {
+  const params = search ? `?search=${encodeURIComponent(search)}` : "";
+  const r = await fetch(`${base}/v1/sessions/list${params}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getStudioSession(sessionId: string): Promise<StudioSession> {
+  const r = await fetch(`${base}/v1/sessions/${sessionId}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<StudioSession>;
+}
+
+export async function updateStudioSession(
+  sessionId: string,
+  updates: { name?: string; bpm?: number; key?: string; prompt?: string },
+): Promise<void> {
+  const r = await fetch(`${base}/v1/sessions/${sessionId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!r.ok) throw new Error(await r.text());
+}
+
+export async function visualizeRecording(
+  recordingId: string,
+  sessionId?: string,
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ recording_id: recordingId });
+  if (sessionId) params.append("session_id", sessionId);
+  
+  const r = await fetch(`${base}/v1/visualize/recording/${recordingId}?${params}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function separateStems(
+  recordingId: string,
+  sessionId?: string,
+  stemTypes?: string[],
+): Promise<{ recording_id: string; stems: Record<string, string>; stem_count: number }> {
+  const body: Record<string, unknown> = { recording_id: recordingId };
+  if (sessionId) body.session_id = sessionId;
+  if (stemTypes) body.stem_types = stemTypes;
+
+  const r = await fetch(`${base}/v1/stems/separate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function extractVocals(
+  recordingId: string,
+  sessionId?: string,
+): Promise<{ recording_id: string; output_file: string; duration_sec: number }> {
+  const body: Record<string, unknown> = { recording_id: recordingId };
+  if (sessionId) body.session_id = sessionId;
+
+  const r = await fetch(`${base}/v1/stems/extract-vocals`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
