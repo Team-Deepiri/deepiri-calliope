@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "deepiri-calliope"
+version = "0.1.0"
+description = "Deepiri Calliope — AI music generation API and workers"
+authors = ["Team Deepiri"]
+readme = "README.md"
+packages = [{ include = "calliope", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.32.0" }
+sqlalchemy = { extras = ["asyncio"], version = "^2.0.36" }
+asyncpg = "^0.30.0"
+httpx = "^0.27.0"
+pydantic = "^2.10.0"
+pydantic-settings = "^2.6.0"
+deepiri-ollama-utils = { git = "git@github.com:Team-Deepiri/deepiri-ollama-utils.git", branch = "main" }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+ruff = "^0.8.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
