@@ -7,6 +7,7 @@ from typing import Literal
 from calliope.music import BriefAnalysis, ProductionStructure, analyze_brief_text, plan_structure
 from calliope.music.chord_palette import palette_lines
 from calliope.music.structure_engine import structure_to_prompt_block
+from calliope.services.aamati_prior import AamatiPrior
 from calliope.services.prompts import (
     MUSIC_ARCHITECT_SYSTEM,
     MUSIC_SYSTEM_PROMPT,
@@ -44,6 +45,7 @@ def build_user_payload(
 
     struct = plan_structure(brief)
     palette_block = "[Harmony palette hints]\n" + palette_lines(brief.genres)
+    aamati_block = AamatiPrior().build_llm_injection(brief)
     analysis_block = (
         f"[Calliope analysis — deterministic]\n"
         f"- Inferred genres: {', '.join(brief.genres)}\n"
@@ -69,6 +71,6 @@ def build_user_payload(
         )
 
     return (
-        f"{analysis_block}\n{palette_block}\n{structure_block}\n\n[Producer brief]\n{user_prompt.strip()}\n"
+        f"{analysis_block}\n{aamati_block}\n{palette_block}\n{structure_block}\n\n[Producer brief]\n{user_prompt.strip()}\n"
         f"{RHYTHM_HARMONY_ADDENDUM}{tail}"
     )

@@ -19,6 +19,11 @@ anthropic = "^0.42.0"
 pydantic = "^2.10.0"
 pydantic-settings = "^2.6.0"
 deepiri-ollama-utils = { git = "git@github.com:Team-Deepiri/deepiri-ollama-utils.git", branch = "main" }
+onnxruntime = "^1.26.0"
+numpy = "^2.4.4"
+scikit-learn = "^1.8.0"
+joblib = "^1.5.3"
+pandas = "^3.0.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

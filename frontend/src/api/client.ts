@@ -76,3 +76,25 @@ export async function generatePlan(
   if (!r.ok) throw new Error(await r.text());
   return r.json() as Promise<{ model: string; response: string; provider: string; depth: GenerateDepth }>;
 }
+
+export async function alignAamati(text: string) {
+  const r = await fetch(`${base}/v1/aamati/align`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<{
+    brief: Record<string, unknown>;
+    ranked_moods: {
+      mood: string;
+      score: number;
+      emoji?: string | null;
+      feature_targets: Record<string, string>;
+      table_summary?: string | null;
+    }[];
+    ontology_version: string;
+    onnx_mood: string | null;
+    onnx_probabilities: Record<string, number> | null;
+  }>;
+}

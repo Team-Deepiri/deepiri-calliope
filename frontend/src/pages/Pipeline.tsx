@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Cpu, Play } from "lucide-react";
-import { analyzeBrief, generatePlan, type GenerateDepth } from "../api/client";
+import { Cpu, Layers, Play } from "lucide-react";
+import { alignAamati, analyzeBrief, generatePlan, type GenerateDepth } from "../api/client";
 
 export function Pipeline() {
   const [text, setText] = useState("Neurofunk 174 BPM, reese bass, tight snare ghost layers");
   const [analysis, setAnalysis] = useState<string>("");
+  const [aamati, setAamati] = useState<string>("");
   const [plan, setPlan] = useState("");
   const [meta, setMeta] = useState("");
   const [busyA, setBusyA] = useState(false);
+  const [busyM, setBusyM] = useState(false);
   const [busyG, setBusyG] = useState(false);
   const [depth, setDepth] = useState<GenerateDepth>("deep");
 
@@ -23,6 +25,19 @@ export function Pipeline() {
       setAnalysis(String(e));
     } finally {
       setBusyA(false);
+    }
+  }
+
+  async function runAamatiAlign() {
+    setBusyM(true);
+    setAamati("");
+    try {
+      const r = await alignAamati(text);
+      setAamati(JSON.stringify(r, null, 2));
+    } catch (e) {
+      setAamati(String(e));
+    } finally {
+      setBusyM(false);
     }
   }
 
@@ -46,8 +61,8 @@ export function Pipeline() {
       <div className="gradient-strip" style={{ maxWidth: 200, marginBottom: "1rem" }} />
       <h1 className="section-title">Pipeline</h1>
       <p className="lead mt-sm">
-        Step 1: deterministic <strong>music intel</strong> (no LLM). Step 2: full <strong>architect</strong> pass with the
-        same brief — the backend merges analysis, harmony palette, and bar scaffold into the prompt.
+        Step 1: deterministic <strong>music intel</strong> (no LLM). Step 1b: <strong>Aamati</strong> mood ontology
+        alignment (ranked moods + optional ONNX). Step 2: full <strong>architect</strong> pass — prompts include the Aamati prior block automatically.
       </p>
 
       <div className="glass-panel stack mt-lg" style={{ padding: "1.35rem" }}>
@@ -67,6 +82,10 @@ export function Pipeline() {
             <Cpu size={18} />
             {busyA ? "Analyzing…" : "1 · Analyze (deterministic)"}
           </button>
+          <button type="button" className="btn-modern btn-ghost" onClick={() => void runAamatiAlign()} disabled={busyM}>
+            <Layers size={18} />
+            {busyM ? "Aligning…" : "1b · Aamati mood align"}
+          </button>
           <button type="button" className="btn-modern btn-primary" onClick={() => void runFullGenerate()} disabled={busyG}>
             <Play size={18} />
             {busyG ? "Generating…" : "2 · Full LLM plan"}
@@ -83,6 +102,15 @@ export function Pipeline() {
             Analysis JSON
           </h2>
           <div className="mono-block">{analysis}</div>
+        </div>
+      )}
+
+      {aamati && (
+        <div className="glass-panel stack mt-lg" style={{ padding: "1.25rem" }}>
+          <h2 className="section-title" style={{ fontSize: "1.05rem" }}>
+            Aamati alignment
+          </h2>
+          <div className="mono-block">{aamati}</div>
         </div>
       )}
 

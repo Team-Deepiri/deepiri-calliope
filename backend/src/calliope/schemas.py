@@ -89,3 +89,35 @@ class AamatiHealthResponse(BaseModel):
     aamati_path: str
     mood_labels_loaded: bool
     detail: str | None = None
+
+
+class BriefAnalysisOut(BaseModel):
+    raw_text: str
+    tempo_bpm: int | None
+    tempo_confidence: float
+    genres: list[str]
+    swing_bias: float
+    energy: float
+    valence: float
+    complexity: float
+    keywords: list[str]
+
+
+class MoodScoreOut(BaseModel):
+    mood: str
+    score: float
+    emoji: str | None = None
+    feature_targets: dict[str, str] = Field(default_factory=dict)
+    table_summary: str | None = None
+
+
+class AamatiAlignRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=8000)
+
+
+class AamatiAlignResponse(BaseModel):
+    brief: BriefAnalysisOut
+    ranked_moods: list[MoodScoreOut]
+    ontology_version: str
+    onnx_mood: str | None = None
+    onnx_probabilities: dict[str, float] | None = None

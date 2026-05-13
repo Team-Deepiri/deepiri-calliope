@@ -38,6 +38,8 @@ With `provider=auto` and a `model` set, the backend infers the provider from the
 
 `POST /v1/music/analyze` runs **deterministic** brief analysis (tempo/genre/swing/energy + bar scaffold) with **no LLM**.
 
+**Aamati:** `GET /v1/aamati/health`, `GET /v1/aamati/groove-ontology` (full `MOOD_FEATURE_MAP` + tables), `POST /v1/aamati/align` (rank moods + optional ONNX if `categorical_encoder.pkl`, `label_encoder.pkl`, and `models/trained/groove_mood_model.onnx` exist under `AAMATI_ROOT`). All LLM `/v1/generate/plan` calls receive an **Aamati prior block** derived from the same brief.
+
 Set keys in `.env` (see `.env.example`).
 
 ## Python layout
