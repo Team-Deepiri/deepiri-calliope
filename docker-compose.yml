@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: calliope
+      POSTGRES_PASSWORD: calliope
+      POSTGRES_DB: calliope
+    ports:
+      - "5432:5432"
+    volumes:
+      - calliope_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calliope -d calliope"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - calliope_ollama:/root/.ollama
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+      ssh:
+        - default
+    environment:
+      DATABASE_URL: postgresql+asyncpg://calliope:calliope@postgres:5432/calliope
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: mistral
+      AAMATI_ROOT: /opt/Aamati/aamati_ml
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    volumes:
+      - calliope_audio:/data/audio
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  calliope_pg:
+  calliope_ollama:
+  calliope_audio:
