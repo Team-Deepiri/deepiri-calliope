@@ -1,3 +1,5 @@
+import type { VocalRackPayload } from "../types/vocalRack";
+
 const base = "";
 
 export type RouterProvider = "auto" | "ollama" | "openai" | "anthropic" | "openrouter";
@@ -57,6 +59,7 @@ export async function generatePlan(
     depth?: GenerateDepth;
     genre?: string;
     bpm_hint?: number;
+    vocal_rack?: VocalRackPayload | null;
   },
 ) {
   const body: Record<string, unknown> = {
@@ -67,6 +70,7 @@ export async function generatePlan(
   if (opts?.model?.trim()) body.model = opts.model.trim();
   if (opts?.genre?.trim()) body.genre = opts.genre.trim();
   if (opts?.bpm_hint != null && opts.bpm_hint > 0) body.bpm_hint = opts.bpm_hint;
+  if (opts?.vocal_rack) body.vocal_rack = opts.vocal_rack;
 
   const r = await fetch(`${base}/v1/generate/plan`, {
     method: "POST",
