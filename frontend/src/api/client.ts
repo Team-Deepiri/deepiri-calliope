@@ -757,3 +757,103 @@ export async function getMonitoringData(
   if (!r.ok) throw new Error(await r.text());
   return (await r.json()).monitoring as MonitoringData;
 }
+
+export async function sliceRecording(
+  recordingId: string,
+  sessionId: string | undefined,
+  method: string,
+  sensitivity: number,
+): Promise<{
+  recording_id: string;
+  slices: Array<{ position_sec: number; type: string }>;
+  slice_count: number;
+}> {
+  const body: Record<string, unknown> = {
+    recording_id: recordingId,
+    method,
+    sensitivity,
+  };
+  if (sessionId) body.session_id = sessionId;
+
+  const r = await fetch(`${base}/v1/loops/slice`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function detectTempo(
+  recordingId: string,
+  sessionId: string | undefined,
+): Promise<{
+  recording_id: string;
+  tempo_bpm: number;
+  confidence: number;
+  beat_count: number;
+  swing: number;
+}> {
+  const body: Record<string, unknown> = { recording_id: recordingId };
+  if (sessionId) body.session_id = sessionId;
+
+  const r = await fetch(`${base}/v1/loops/detect-tempo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function warpTempo(
+  recordingId: string,
+  sourceTempo: number,
+  targetTempo: number,
+  mode: string,
+  sessionId?: string,
+): Promise<{
+  output_file: string;
+  source_tempo: number;
+  target_tempo: number;
+  stretch_factor: number;
+}> {
+  const body: Record<string, unknown> = {
+    recording_id: recordingId,
+    source_tempo: sourceTempo,
+    target_tempo: targetTempo,
+    mode,
+  };
+  if (sessionId) body.session_id = sessionId;
+
+  const r = await fetch(`${base}/v1/loops/warp-tempo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function createSlicedRack(
+  recordingId: string,
+  targetTempo: number,
+  sessionId?: string,
+): Promise<{
+  output_file: string;
+  slice_count: number;
+}> {
+  const body: Record<string, unknown> = {
+    recording_id: recordingId,
+    target_tempo: targetTempo,
+  };
+  if (sessionId) body.session_id = sessionId;
+
+  const r = await fetch(`${base}/v1/loops/create-sliced-rack`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}

@@ -1,351 +1,337 @@
-"""Advanced routing matrix for complex signal chains."""
+"""Advanced audio routing matrix for complex signal chains."""
 
 from __future__ import annotations
 
+import numpy as np
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Literal
 
-import numpy as np
-
-
-class RoutingMode(str, Enum):
-    SERIAL = "serial"
-    PARALLEL = "parallel"
-    MATRIX = "matrix"
-    SEND_RETURN = "send_return"
-
 
 @dataclass
-class RoutingNode:
-    id: str
+class BusConfig:
     name: str
-    node_type: Literal["input", "output", "process", "aux"]
-    inputs: list[str] = field(default_factory=list)
-    outputs: list[str] = field(default_factory=list)
-    gain: float = 1.0
-    pan: float = 0.0
-    mute: bool = False
-    solo: bool = False
-
-
-@dataclass
-class RoutingConnection:
-    from_node: str
-    to_node: str
-    gain: float = 1.0
+    channels: int = 2
+    volume: float = 1.0
     pan: float = 0.0
     muted: bool = False
+    soloed: bool = False
 
 
-class RoutingMatrix:
-    """
-    Advanced routing matrix for complex signal chains.
-    Supports serial, parallel, and matrix routing with sends.
-    """
+@dataclass
+class SendConfig:
+    source: str
+    destination: str
+    amount: float = 1.0
+    pre_fader: bool = False
+
+
+@dataclass
+class RouterConfig:
+    inputs: list[str] = field(default_factory=list)
+    buses: list[BusConfig] = field(default_factory=list)
+    sends: list[SendConfig] = field(default_factory=list)
+    master_bus: str = "master"
+
+
+class AudioRouter:
+    """Flexible audio routing matrix."""
 
     def __init__(self, sr: int = 48000):
         self.sr = sr
-        self._nodes: dict[str, RoutingNode] = {}
-        self._connections: list[RoutingConnection] = []
-        self._buffers: dict[str, np.ndarray] = {}
-        self._solo_active = False
+        self.config = RouterConfig()
+        self.mixer_state = {}
+        self.meters = {}
 
-    def add_node(
-        self,
-        node_id: str,
-        name: str,
-        node_type: Literal["input", "output", "process", "aux"],
-    ) -> RoutingNode:
-        """Add a routing node."""
-        node = RoutingNode(id=node_id, name=name, node_type=node_type)
-        self._nodes[node_id] = node
-        return node
+    def add_input(self, name: str, channels: int = 2) -> None:
+        if name not in self.config.inputs:
+            self.config.inputs.append(name)
+            self.mixer_state[name] = {
+                "channels": channels,
+                "volume": 1.0,
+                "pan": 0.0,
+                "muted": False,
+                "soloed": False,
+                "sends": {},
+            }
 
-    def connect(
-        self,
-        from_id: str,
-        to_id: str,
-        gain: float = 1.0,
-        pan: float = 0.0,
-    ) -> RoutingConnection:
-        """Create a connection between nodes."""
-        if from_id not in self._nodes or to_id not in self._nodes:
-            raise ValueError("Node not found")
+    def add_bus(self, name: str, channels: int = 2) -> None:
+        bus = BusConfig(name=name, channels=channels)
+        self.config.buses.append(bus)
+        self.mixer_state[name] = {
+            "channels": channels,
+            "volume": 1.0,
+            "pan": 0.0,
+            "muted": False,
+            "soloed": False,
+            "sends": {},
+            "input_sources": [],
+        }
 
-        conn = RoutingConnection(from_node=from_id, to_node=to_id, gain=gain, pan=pan)
-        self._connections.append(conn)
+    def add_send(self, source: str, destination: str, amount: float = 1.0, pre_fader: bool = False) -> None:
+        send = SendConfig(source, destination, amount, pre_fader)
+        self.config.sends.append(send)
 
-        self._nodes[from_id].outputs.append(to_id)
-        self._nodes[to_id].inputs.append(from_id)
+        if source in self.mixer_state:
+            if destination not in self.mixer_state[source]["sends"]:
+                self.mixer_state[source]["sends"][destination] = {"amount": amount, "pre_fader": pre_fader}
 
-        return conn
+    def set_volume(self, channel: str, volume: float) -> None:
+        if channel in self.mixer_state:
+            self.mixer_state[channel]["volume"] = np.clip(volume, 0, 2)
 
-    def disconnect(self, from_id: str, to_id: str) -> bool:
-        """Remove a connection."""
-        self._connections = [
-            c for c in self._connections
-            if not (c.from_node == from_id and c.to_node == to_id)
-        ]
-        return True
+    def set_pan(self, channel: str, pan: float) -> None:
+        if channel in self.mixer_state:
+            self.mixer_state[channel]["pan"] = np.clip(pan, -1, 1)
 
-    def set_node_gain(self, node_id: str, gain: float) -> None:
-        """Set node gain."""
-        if node_id in self._nodes:
-            self._nodes[node_id].gain = np.clip(gain, 0.0, 2.0)
+    def set_mute(self, channel: str, muted: bool) -> None:
+        if channel in self.mixer_state:
+            self.mixer_state[channel]["muted"] = muted
 
-    def set_node_pan(self, node_id: str, pan: float) -> None:
-        """Set node pan (-1 to 1)."""
-        if node_id in self._nodes:
-            self._nodes[node_id].pan = np.clip(pan, -1.0, 1.0)
+    def set_solo(self, channel: str, soloed: bool) -> None:
+        if channel in self.mixer_state:
+            self.mixer_state[channel]["soloed"] = soloed
 
-    def toggle_mute(self, node_id: str) -> bool:
-        """Toggle node mute."""
-        if node_id in self._nodes:
-            self._nodes[node_id].mute = not self._nodes[node_id].mute
-            return self._nodes[node_id].mute
-        return False
-
-    def toggle_solo(self, node_id: str) -> bool:
-        """Toggle node solo."""
-        if node_id in self._nodes:
-            self._nodes[node_id].solo = not self._nodes[node_id].solo
-
-            self._solo_active = any(n.solo for n in self._nodes.values())
-
-            return self._nodes[node_id].solo
-        return False
-
-    def process(
-        self,
-        inputs: dict[str, np.ndarray],
-        processors: dict[str, Callable[[np.ndarray], np.ndarray]],
-    ) -> dict[str, np.ndarray]:
-        """Process audio through the routing matrix."""
-        for node_id, node in self._nodes.items():
-            if node.node_type == "input" and node_id in inputs:
-                self._buffers[node_id] = inputs[node_id].copy()
-            else:
-                self._buffers[node_id] = np.zeros(max(len(v) for v in inputs.values()) if inputs else 1024)
-
-        for conn in self._connections:
-            if conn.muted:
-                continue
-
-            from_node = self._nodes.get(conn.from_node)
-            to_node = self._nodes.get(conn.to_node)
-
-            if not from_node or not to_node:
-                continue
-
-            if from_node.mute or (self._solo_active and not from_node.solo):
-                continue
-
-            source = self._buffers.get(conn.from_node, np.zeros(1024))
-            dest = self._buffers.get(conn.to_node, np.zeros_like(source))
-
-            if len(source) > len(dest):
-                dest = np.pad(dest, (0, len(source) - len(dest)))
-            elif len(source) < len(dest):
-                source = np.pad(source, (0, len(dest) - len(source)))
-
-            if to_node.node_type == "process" and to_node.id in processors:
-                processed = processors[to_node.id](source * conn.gain * from_node.gain)
-                dest = dest + processed
-            else:
-                dest = dest + source * conn.gain * from_node.gain
-
-            self._buffers[conn.to_node] = dest
-
+    def process_mix(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         outputs = {}
-        for node_id, node in self._nodes.items():
-            if node.node_type == "output":
-                buf = self._buffers.get(node_id, np.zeros(1024))
-                if node.mute or (self._solo_active and not node.solo):
-                    buf = np.zeros_like(buf)
-                outputs[node_id] = buf * node.gain
+        soloed_channels = [ch for ch, state in self.mixer_state.items() if state.get("soloed", False)]
+
+        for channel_name, channel_data in self.mixer_state.items():
+            if channel_name not in inputs:
+                continue
+
+            samples = inputs[channel_name]
+
+            if channel_data.get("muted", False):
+                outputs[channel_name] = np.zeros_like(samples)
+                continue
+
+            if soloed_channels and not channel_data.get("soloed", False):
+                outputs[channel_name] = np.zeros_like(samples)
+                continue
+
+            volume = channel_data.get("volume", 1.0)
+            pan = channel_data.get("pan", 0.0)
+
+            processed = samples * volume
+
+            if processed.ndim == 1 and len(self.config.buses) > 0:
+                processed = np.stack([processed, processed], axis=1)
+
+            if processed.ndim == 2 and len(pan) > 0:
+                left_gain = np.sqrt(2) * np.cos((pan + 1) * np.pi / 4)
+                right_gain = np.sqrt(2) * np.sin((pan + 1) * np.pi / 4)
+                processed[:, 0] *= left_gain
+                processed[:, 1] *= right_gain
+
+            outputs[channel_name] = processed
+
+        for send in self.config.sends:
+            if send.source not in outputs or send.destination not in self.mixer_state:
+                continue
+
+            if send.source not in self.mixer_state[send.destination].get("input_sources", []):
+                self.mixer_state[send.destination].setdefault("input_sources", []).append(send.source)
+
+            if send.destination not in outputs:
+                outputs[send.destination] = np.zeros((len(next(iter(outputs.values()))), 2))
+
+            amount = send.amount
+            send_signal = outputs[send.source] * amount
+
+            if outputs[send.destination].shape == send_signal.shape:
+                outputs[send.destination] = outputs[send.destination] + send_signal
+
+        if self.config.master_bus in outputs:
+            master_output = outputs[self.config.master_bus]
+            if master_output.ndim == 2:
+                peak_l = np.max(np.abs(master_output[:, 0]))
+                peak_r = np.max(np.abs(master_output[:, 1]))
+                self.meters["master"] = {"left": peak_l, "right": peak_r}
+            else:
+                peak = np.max(np.abs(master_output))
+                self.meters["master"] = {"left": peak, "right": peak}
 
         return outputs
 
-    def get_signal_flow(self) -> list[tuple[str, str]]:
-        """Get current signal flow as list of connections."""
-        return [(c.from_node, c.to_node) for c in self._connections if not c.muted]
+    def get_meters(self) -> dict:
+        return self.meters
 
-    def clear(self) -> None:
-        """Clear all nodes and connections."""
-        self._nodes.clear()
-        self._connections.clear()
-        self._buffers.clear()
+    def get_bus_mix(self) -> dict:
+        mix = {}
+        for bus in self.config.buses:
+            if bus.name in self.mixer_state:
+                state = self.mixer_state[bus.name]
+                input_sources = state.get("input_sources", [])
+                mix[bus.name] = {
+                    "name": bus.name,
+                    "volume": state.get("volume", 1.0),
+                    "pan": state.get("pan", 0.0),
+                    "muted": state.get("muted", False),
+                    "soloed": state.get("soloed", False),
+                    "inputs": input_sources,
+                }
+        return mix
 
+    def reset(self) -> None:
+        for channel in self.mixer_state:
+            self.mixer_state[channel]["volume"] = 1.0
+            self.mixer_state[channel]["pan"] = 0.0
+            self.mixer_state[channel]["muted"] = False
+            self.mixer_state[channel]["soloed"] = False
 
-class SendReturnSystem:
-    """
-    Send/return system for parallel effect chains.
-    """
-
-    def __init__(self, sr: int = 48000):
-        self.sr = sr
-        self._sends: dict[str, np.ndarray] = {}
-        self._returns: dict[str, np.ndarray] = {}
-        self._processors: dict[str, Callable[[np.ndarray], np.ndarray]] = {}
-        self._levels: dict[str, float] = {}
-        self._active = False
-
-    def add_send(
-        self,
-        send_id: str,
-        processor: Callable[[np.ndarray], np.ndarray],
-        level: float = 0.5,
-    ) -> None:
-        """Add a send bus."""
-        self._sends[send_id] = np.zeros(1024)
-        self._processors[send_id] = processor
-        self._levels[send_id] = level
-        self._active = True
-
-    def send(self, audio: np.ndarray, send_ids: list[str], pre_level: float = 0.5) -> None:
-        """Send audio to send buses."""
-        for send_id in send_ids:
-            if send_id in self._sends:
-                self._sends[send_id] = audio * pre_level * self._levels.get(send_id, 0.5)
-
-    def process(self, audio: np.ndarray, send_ids: list[str]) -> np.ndarray:
-        """Process audio through send/return chain."""
-        self.send(audio, send_ids)
-
-        result = audio.copy()
-
-        for send_id in send_ids:
-            if send_id in self._sends and send_id in self._processors:
-                processed = self._processors[send_id](self._sends[send_id])
-                result = result + processed * self._levels.get(send_id, 0.5)
-
-        return result.astype(np.float64)
-
-    def set_level(self, send_id: str, level: float) -> None:
-        """Set send/return level."""
-        self._levels[send_id] = np.clip(level, 0.0, 1.0)
-
-    def remove_send(self, send_id: str) -> None:
-        """Remove a send bus."""
-        self._sends.pop(send_id, None)
-        self._processors.pop(send_id, None)
-        self._levels.pop(send_id, None)
-        if not self._sends:
-            self._active = False
+        self.meters.clear()
 
 
-class ParallelProcessor:
-    """
-    Parallel processor with crossfade/blend between paths.
-    """
+class EffectChainRouter:
+    """Route audio through multiple effects chains."""
 
     def __init__(self, sr: int = 48000):
         self.sr = sr
-        self._paths: dict[str, Callable[[np.ndarray], np.ndarray]] = {}
-        self._levels: dict[str, float] = {}
-        self._pans: dict[str, float] = {}
+        self.chains = {}
+        self.order = []
 
-    def add_path(
-        self,
-        path_id: str,
-        processor: Callable[[np.ndarray], np.ndarray],
-        level: float = 1.0,
-        pan: float = 0.0,
-    ) -> None:
-        """Add a parallel processing path."""
-        self._paths[path_id] = processor
-        self._levels[path_id] = level
-        self._pans[path_id] = pan
+    def add_chain(self, name: str) -> None:
+        self.chains[name] = {"effects": [], "bypass": False}
+        if name not in self.order:
+            self.order.append(name)
 
-    def process(
-        self,
-        audio: np.ndarray,
-        output_mode: Literal["sum", "stereo", "multi"] = "sum",
-    ) -> np.ndarray | tuple[np.ndarray, np.ndarray] | dict[str, np.ndarray]:
-        """Process through all parallel paths."""
-        audio = np.asarray(audio, dtype=np.float64).ravel()
+    def add_effect_to_chain(self, chain_name: str, effect_name: str, parameters: dict) -> None:
+        if chain_name in self.chains:
+            self.chains[chain_name]["effects"].append({
+                "name": effect_name,
+                "parameters": parameters,
+            })
 
-        if output_mode == "sum":
-            result = np.zeros_like(audio)
-            for path_id, processor in self._paths.items():
-                processed = processor(audio)
-                level = self._levels.get(path_id, 1.0)
-                result += processed * level
-            return result / max(len(self._paths), 1)
+    def remove_effect_from_chain(self, chain_name: str, index: int) -> None:
+        if chain_name in self.chains and 0 <= index < len(self.chains[chain_name]["effects"]):
+            self.chains[chain_name]["effects"].pop(index)
 
-        elif output_mode == "stereo":
-            left = np.zeros_like(audio)
-            right = np.zeros_like(audio)
-            for path_id, processor in self._paths.items():
-                processed = processor(audio)
-                level = self._levels.get(path_id, 1.0)
-                pan = self._pans.get(path_id, 0.0)
-                left_gain = max(0, 0.5 - pan * 0.5)
-                right_gain = max(0, 0.5 + pan * 0.5)
-                left += processed * level * left_gain
-                right += processed * level * right_gain
-            return left.astype(np.float64), right.astype(np.float64)
+    def bypass_chain(self, chain_name: str, bypass: bool = True) -> None:
+        if chain_name in self.chains:
+            self.chains[chain_name]["bypass"] = bypass
 
-        else:
-            results = {}
-            for path_id, processor in self._paths.items():
-                processed = processor(audio)
-                level = self._levels.get(path_id, 1.0)
-                results[path_id] = (processed * level).astype(np.float64)
-            return results
+    def process_through_chains(self, samples: np.ndarray) -> np.ndarray:
+        processed = samples.copy()
 
-    def set_level(self, path_id: str, level: float) -> None:
-        """Set path level."""
-        self._levels[path_id] = np.clip(level, 0.0, 1.0)
+        for chain_name in self.order:
+            chain = self.chains[chain_name]
 
-    def set_pan(self, path_id: str, pan: float) -> None:
-        """Set path pan."""
-        self._pans[path_id] = np.clip(pan, -1.0, 1.0)
+            if chain["bypass"]:
+                continue
+
+            for effect in chain["effects"]:
+                try:
+                    from calliope.plugins.base import get_plugin_registry
+                    registry = get_plugin_registry()
+                    plugin = registry.create(effect["name"], self.sr)
+
+                    for param_name, param_value in effect["parameters"].items():
+                        plugin.set_parameter(param_name, param_value)
+
+                    processed = plugin.process(processed)
+                except Exception:
+                    pass
+
+        return processed
 
 
-class SidechainMatrix:
-    """
-    Sidechain routing with multiple key inputs.
-    """
+class ParallelPath:
+    """Create parallel effect processing paths."""
 
     def __init__(self, sr: int = 48000):
         self.sr = sr
-        self._key_inputs: dict[str, np.ndarray] = {}
-        self._processors: dict[str, Callable[[np.ndarray, np.ndarray], np.ndarray]] = {}
+        self.paths = {}
 
-    def add_key(
+    def add_path(self, name: str, effects: list[dict] | None = None) -> None:
+        self.paths[name] = {
+            "effects": effects or [],
+            "gain": 1.0,
+            "pan": 0.0,
+        }
+
+    def process_parallel(
         self,
-        key_id: str,
-        processor: Callable[[np.ndarray, np.ndarray], np.ndarray],
-    ) -> None:
-        """Add sidechain key input."""
-        self._key_inputs[key_id] = np.zeros(1024)
-        self._processors[key_id] = processor
-
-    def set_key(self, key_id: str, audio: np.ndarray) -> None:
-        """Set key audio."""
-        self._key_inputs[key_id] = np.asarray(audio, dtype=np.float64).ravel()
-
-    def process(
-        self,
-        audio: np.ndarray,
-        key_id: str,
+        samples: np.ndarray,
+        mix: float = 1.0,
     ) -> np.ndarray:
-        """Process with sidechain key."""
-        audio = np.asarray(audio, dtype=np.float64).ravel()
+        results = []
 
-        if key_id not in self._processors:
-            return audio
+        for path_name, path in self.paths.items():
+            processed = samples.copy()
 
-        key_audio = self._key_inputs.get(key_id, np.zeros_like(audio))
+            for effect in path["effects"]:
+                try:
+                    from calliope.plugins.base import get_plugin_registry
+                    registry = get_plugin_registry()
+                    plugin = registry.create(effect["name"], self.sr)
 
-        if len(key_audio) < len(audio):
-            key_audio = np.pad(key_audio, (0, len(audio) - len(key_audio)))
-        elif len(key_audio) > len(audio):
-            key_audio = key_audio[:len(audio)]
+                    for param_name, param_value in effect["parameters"].items():
+                        plugin.set_parameter(param_name, param_value)
 
-        return self._processors[key_id](audio, key_audio).astype(np.float64)
+                    processed = plugin.process(processed)
+                except Exception:
+                    pass
+
+            processed = processed * path["gain"]
+
+            if processed.ndim == 1:
+                processed = np.stack([processed, processed], axis=1)
+
+            pan = path["pan"]
+            left_gain = np.sqrt(2) * np.cos((pan + 1) * np.pi / 4)
+            right_gain = np.sqrt(2) * np.sin((pan + 1) * np.pi / 4)
+            processed[:, 0] *= left_gain
+            processed[:, 1] *= right_gain
+
+            results.append(processed)
+
+        if not results:
+            return samples
+
+        mixed = np.sum(results, axis=0)
+
+        if mix < 1.0:
+            return (1 - mix) * samples + mix * mixed / len(results)
+        return mixed / len(results)
 
 
-from typing import Callable
+def create_mixer_routing(
+    tracks: list[str],
+    buses: list[str],
+    sends: list[tuple[str, str, float]] | None = None,
+) -> AudioRouter:
+    """Create a mixer routing matrix."""
+    router = AudioRouter()
+
+    for track in tracks:
+        router.add_input(track)
+
+    for bus in buses:
+        router.add_bus(bus)
+
+    if sends:
+        for source, dest, amount in sends:
+            router.add_send(source, dest, amount)
+
+    return router
+
+
+def apply_send_levels(
+    samples: np.ndarray,
+    send_amounts: dict[str, float],
+    master_volume: float = 1.0,
+) -> tuple[dict[str, np.ndarray], np.ndarray]:
+    """Apply send levels to create multiple outputs."""
+    outputs = {}
+    sum_output = np.zeros_like(samples)
+
+    for dest_name, amount in send_amounts.items():
+        send_signal = samples * amount * master_volume
+
+        if send_signal.ndim == 1:
+            send_signal = np.stack([send_signal, send_signal], axis=1)
+
+        outputs[dest_name] = send_signal
+        sum_output = sum_output + send_signal if sum_output.ndim == 2 else sum_output + send_signal[:, 0]
+
+    return outputs, sum_output
