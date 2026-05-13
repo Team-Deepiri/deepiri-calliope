@@ -24,7 +24,7 @@ __all__ = [
     "register_plugin",
 ]
 
-from calliope.plugins import filters, dynamics, effects, modulation, distortion, eq, mastering, pitch
+from calliope.plugins import filters, dynamics, effects, modulation, distortion, eq, mastering, pitch, advanced
 
 __all__ += [
     "filters",
@@ -35,4 +35,5 @@ __all__ += [
     "eq",
     "mastering",
     "pitch",
+    "advanced",
 ]
