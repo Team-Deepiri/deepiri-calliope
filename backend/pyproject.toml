@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Deepiri Calliope — AI music generation API and workers"
 authors = ["Team Deepiri"]
 readme = "README.md"
+license = "Apache-2.0"
 packages = [{ include = "calliope", from = "src" }]
 
 [tool.poetry.dependencies]

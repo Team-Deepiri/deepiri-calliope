@@ -28,4 +28,4 @@ Poetry project lives in `backend/`. Core package: `calliope`.
 
 ## License
 
-MIT — see `LICENSE`.
+Apache License 2.0 — see `LICENSE`.
