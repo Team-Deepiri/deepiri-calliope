@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Cpu, Radio, Sparkles, SlidersHorizontal, Mic, Music, Layout, Piano } from "lucide-react";
+import { Cpu, Radio, Sparkles, SlidersHorizontal, Mic, Music, Layout, Piano, Mic2 } from "lucide-react";
 import { generatePlan, type GenerateDepth, type RouterProvider } from "../api/client";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
@@ -11,6 +11,7 @@ import { AudioClipsManager } from "../components/audio/AudioClipsManager";
 import { TimelineView } from "../components/studio/TimelineView";
 import { MixerConsole } from "../components/studio/MixerConsole";
 import { PianoRoll } from "../components/studio/PianoRoll";
+import { VocalAIPanel } from "../components/studio/VocalAIPanel";
 import type { PluginInstance } from "../types/audio";
 
 const PROVIDERS: { value: RouterProvider; label: string }[] = [
@@ -22,11 +23,11 @@ const PROVIDERS: { value: RouterProvider; label: string }[] = [
   { value: "gemini", label: "Gemini" },
 ];
 
-type StudioTab = "architect" | "arrangement" | "sequencer" | "vocal_studio" | "plugin_chain" | "clips";
+type StudioTab = "architect" | "arrangement" | "sequencer" | "vocal_ai" | "vocal_studio" | "plugin_chain" | "clips";
 
 export function Studio() {
   const [prompt, setPrompt] = useState(
-    "Dark UK garage, 132 BPM, swung hats, minor 9 chords, dubby chords on the offbeat",
+    "Dark UK garage, 132 BPM, swung hats, minor 9 chords, dubby chords on the offbeat, sing lyrics about neon skies",
   );
   const [model, setModel] = useState("");
   const [provider, setProvider] = useState<RouterProvider>("auto");
@@ -38,7 +39,7 @@ export function Studio() {
   const [out, setOut] = useState("");
   const [meta, setMeta] = useState("");
   const [busy, setBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState<StudioTab>("arrangement");
+  const [activeTab, setActiveTab] = useState<StudioTab>("vocal_ai");
   const [pluginChain, setPluginChain] = useState<PluginInstance[]>([]);
 
   // DAW State Mock for Arrangement View
@@ -46,7 +47,7 @@ export function Studio() {
     { id: "1", name: "Drums", type: "drum", volume: -3, pan: 0, muted: false, solo: false, color: "#8b5cf6" },
     { id: "2", name: "Sub Bass", type: "bass", volume: -6, pan: 0, muted: false, solo: false, color: "#ef4444" },
     { id: "3", name: "Synth Lead", type: "lead", volume: -10, pan: -0.2, muted: false, solo: false, color: "#3b82f6" },
-    { id: "4", name: "Vocals", type: "vocal", volume: -4, pan: 0.1, muted: false, solo: false, color: "#10b981" },
+    { id: "4", name: "Vocals (AI)", type: "vocal", volume: -4, pan: 0.1, muted: false, solo: false, color: "#10b981" },
   ]);
 
   const [sections] = useState([
@@ -85,15 +86,22 @@ export function Studio() {
         <div className="studio-hero__strip" />
         <div className="studio-hero__row flex justify-between items-end">
           <div>
-            <h1 className="text-6xl font-black text-white tracking-tighter mb-2">CALLIOPE <span className="text-blue-500">PRO</span></h1>
+            <div className="flex items-center gap-4 mb-2">
+               <h1 className="text-6xl font-black text-white tracking-tighter">CALLIOPE <span className="text-blue-500">PRO</span></h1>
+               <div className="bg-blue-500/10 text-blue-500 text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-full border border-blue-500/20">Ultimate Edition</div>
+            </div>
             <p className="text-xl text-gray-400 font-medium max-w-2xl leading-relaxed">
-              The world's most advanced autonomous AI DAW. From prompt to master, architectural precision meets creative flow.
+              Autonomous Music Production Suite. From prompt to master, architectural precision meets neural creative flow.
             </p>
           </div>
           <div className="flex gap-4">
              <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl flex flex-col items-end">
                 <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-1">Engine Status</span>
-                <span className="text-blue-500 font-mono text-sm">CORES ACTIVE: 128</span>
+                <span className="text-blue-500 font-mono text-sm">CORES ACTIVE: 256</span>
+             </div>
+             <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl flex flex-col items-end">
+                <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-1">Neural Load</span>
+                <span className="text-red-500 font-mono text-sm">OPTIMIZED</span>
              </div>
           </div>
         </div>
@@ -103,8 +111,9 @@ export function Studio() {
         {[
           { id: "arrangement", icon: Layout, label: "Arrangement", color: "bg-blue-600" },
           { id: "sequencer", icon: Piano, label: "Sequencer", color: "bg-indigo-600" },
+          { id: "vocal_ai", icon: Mic2, label: "Vocal AI", color: "bg-red-600" },
           { id: "architect", icon: Cpu, label: "Architect", color: "bg-purple-600" },
-          { id: "vocal_studio", icon: Mic, label: "Vocal Studio", color: "bg-red-600" },
+          { id: "vocal_studio", icon: Mic, label: "Vocal Studio", color: "bg-orange-600" },
           { id: "plugin_chain", icon: SlidersHorizontal, label: "FX Rack", color: "bg-teal-600" },
           { id: "clips", icon: Music, label: "Library", color: "bg-green-600" },
         ].map((tab) => (
@@ -133,6 +142,12 @@ export function Studio() {
           {activeTab === "sequencer" && (
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                <PianoRoll />
+             </motion.div>
+          )}
+
+          {activeTab === "vocal_ai" && (
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+               <VocalAIPanel />
              </motion.div>
           )}
 
@@ -193,7 +208,7 @@ export function Studio() {
            <div className="bg-gray-900/50 border border-gray-800 p-6 rounded-3xl">
              <VocalRackPanel value={vocalRack} onChange={setVocalRack} injectEnabled={vocalInject} onInjectChange={setVocalInject} />
            </div>
-           {activeTab === "architect" && (
+           {(activeTab === "architect" || activeTab === "vocal_ai") && (
              <div className="bg-gray-950 border border-gray-900 p-6 rounded-3xl">
                 <VoiceDspPanel rack={vocalRack} sampleRate={48_000} />
              </div>
