@@ -106,7 +106,7 @@ def write_audio_file(
             buffer = io.BytesIO()
             sf.write(buffer, y, sr, format=format.upper(), subtype=subtype)
             buffer.seek(0)
-            segment = AudioSegment.from_mp3(buffer) if format == "mp3" else AudioSegment.from_file(buffer)
+            segment = AudioSegment.from_file(buffer)
             segment.export(str(path), format=format)
         else:
             sf.write(str(path), y, sr, subtype=subtype)
@@ -114,6 +114,35 @@ def write_audio_file(
         raise AudioWriteError(f"Failed to write {path}: {e}")
 
     return path
+
+
+def write_stems(
+    output_dir: str | Path,
+    stems: dict[str, np.ndarray],
+    sr: int,
+    format: SupportedFormat = "wav",
+) -> dict[str, Path]:
+    """
+    Export multiple stems to a directory.
+    `stems` is a dict mapping track name to sample array.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    paths = {}
+    for name, samples in stems.items():
+        filename = f"{name.replace(' ', '_').lower()}.{format}"
+        paths[name] = write_audio_file(output_dir / filename, samples, sr, format=format)
+        
+    return paths
+
+
+def batch_normalize(
+    samples_list: list[np.ndarray],
+    target_lufs: float = -18.0,
+) -> list[np.ndarray]:
+    """Normalize a list of audio arrays to the same target level."""
+    return [normalize_levels(s, target_lufs) for s in samples_list]
 
 
 def convert_format(

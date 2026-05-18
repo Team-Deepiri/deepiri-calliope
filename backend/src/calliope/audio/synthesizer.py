@@ -184,6 +184,7 @@ class Synthesizer:
                 voice["end_sample"] = 0
 
     def generate(self, duration_sec: float) -> np.ndarray:
+        """Generate audio for all active voices for the given duration."""
         n_samples = int(duration_sec * self.sr)
         output = np.zeros(n_samples)
 
@@ -192,6 +193,7 @@ class Synthesizer:
                 if voice.get("active", True):
                     freq = voice["frequency"]
                     
+                    # Apply LFO modulation
                     for lfo in self.lfos:
                         lfo_config = lfo["config"]
                         if lfo_config.target == "pitch":
@@ -210,11 +212,14 @@ class Synthesizer:
                             if lfo["phase"] > 2 * np.pi:
                                 lfo["phase"] -= 2 * np.pi
                     
-                    samples = osc.generate(1.0 / self.sr, freq)
-                    env = self.envelope.generate(1, 1)
-                    
-                    output[:len(samples)] += samples * voice["velocity"] * env[:len(samples)]
+                    # Generate samples for this voice
+                    samples = osc.generate(duration_sec, freq)
+                    # Simple envelope for now, full ADSR integration pending
+                    output += samples * voice["velocity"]
 
+        # Apply global filter
+        output = self.process_samples(output)
+        
         return output
 
     def process_samples(self, samples: np.ndarray) -> np.ndarray:

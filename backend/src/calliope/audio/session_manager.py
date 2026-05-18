@@ -22,33 +22,23 @@ class PluginChainState:
 
 
 @dataclass
-class VocalRackState:
-    enabled: bool
-    hpf: bool
-    hpf_freq: float
-    de_ess: bool
-    de_ess_threshold: float
-    compress: bool
-    comp_threshold: float
-    comp_ratio: float
-    comp_attack: float
-    comp_release: float
-    eq: bool
-    eq_low: float
-    eq_mid: float
-    eq_high: float
-    de_reverb: bool
-    reverb_type: str
-    reverb_size: float
-    reverb_damping: float
-    reverb_mix: float
-    formant: bool
-    formant_shift: float
-    formant_preserve: float
-    tune: bool
-    tune_speed: float
-    tune_scale: str
-    pitch_shift: float
+class TrackState:
+    id: str
+    name: str
+    track_type: Literal["audio", "midi", "group", "instrument"]
+    volume: float = 0.0  # dB
+    pan: float = 0.0  # -1.0 to 1.0
+    muted: bool = False
+    solo: bool = False
+    plugin_chain: list[PluginChainState] = field(default_factory=list)
+    clips: list[str] = field(default_factory=list)  # IDs of audio clips or MIDI patterns
+    routing_id: Optional[str] = None  # Node ID in the AudioGraph
+
+
+@dataclass
+class AudioGraphState:
+    nodes: dict[str, dict] = field(default_factory=dict)
+    edges: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -66,6 +56,8 @@ class StudioSession:
     audio_clips: list[str]
     prompt: str
     generation_settings: dict
+    tracks: list[TrackState] = field(default_factory=list)
+    graph: AudioGraphState = field(default_factory=AudioGraphState)
 
 
 class SessionManager:

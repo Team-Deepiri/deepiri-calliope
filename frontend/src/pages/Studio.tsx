@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Cpu, Radio, Sparkles, SlidersHorizontal, Mic, Music } from "lucide-react";
+import { Cpu, Radio, Sparkles, SlidersHorizontal, Mic, Music, Layout } from "lucide-react";
 import { generatePlan, type GenerateDepth, type RouterProvider } from "../api/client";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
@@ -8,6 +8,8 @@ import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
 import { AudioRecorder } from "../components/audio/AudioRecorder";
 import { PluginChainEditor } from "../components/audio/PluginChainEditor";
 import { AudioClipsManager } from "../components/audio/AudioClipsManager";
+import { TimelineView } from "../components/studio/TimelineView";
+import { MixerConsole } from "../components/studio/MixerConsole";
 import type { PluginInstance } from "../types/audio";
 
 const PROVIDERS: { value: RouterProvider; label: string }[] = [
@@ -19,7 +21,7 @@ const PROVIDERS: { value: RouterProvider; label: string }[] = [
   { value: "gemini", label: "Gemini" },
 ];
 
-type StudioTab = "architect" | "vocal_studio" | "plugin_chain" | "clips";
+type StudioTab = "architect" | "arrangement" | "vocal_studio" | "plugin_chain" | "clips";
 
 export function Studio() {
   const [prompt, setPrompt] = useState(
@@ -29,14 +31,28 @@ export function Studio() {
   const [provider, setProvider] = useState<RouterProvider>("auto");
   const [depth, setDepth] = useState<GenerateDepth>("standard");
   const [genre, setGenre] = useState("");
-  const [bpm, setBpm] = useState("");
+  const [bpm, setBpm] = useState("132");
   const [vocalRack, setVocalRack] = useState<VocalRackPayload>({ ...DEFAULT_VOCAL_RACK });
   const [vocalInject, setVocalInject] = useState(true);
   const [out, setOut] = useState("");
   const [meta, setMeta] = useState("");
   const [busy, setBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState<StudioTab>("architect");
+  const [activeTab, setActiveTab] = useState<StudioTab>("arrangement");
   const [pluginChain, setPluginChain] = useState<PluginInstance[]>([]);
+
+  // DAW State Mock for Arrangement View
+  const [tracks, setTracks] = useState([
+    { id: "1", name: "Drums", type: "drum", volume: -3, pan: 0, muted: false, solo: false, color: "#8b5cf6" },
+    { id: "2", name: "Sub Bass", type: "bass", volume: -6, pan: 0, muted: false, solo: false, color: "#ef4444" },
+    { id: "3", name: "Synth Lead", type: "lead", volume: -10, pan: -0.2, muted: false, solo: false, color: "#3b82f6" },
+    { id: "4", name: "Vocals", type: "vocal", volume: -4, pan: 0.1, muted: false, solo: false, color: "#10b981" },
+  ]);
+
+  const [sections] = useState([
+    { name: "Intro", startBar: 0, bars: 8, color: "rgba(139, 92, 246, 0.3)" },
+    { name: "Build", startBar: 8, bars: 8, color: "rgba(239, 68, 68, 0.3)" },
+    { name: "Drop", startBar: 16, bars: 16, color: "rgba(59, 130, 246, 0.3)" },
+  ]);
 
   async function onGenerate() {
     setBusy(true);
@@ -68,24 +84,32 @@ export function Studio() {
         <div className="studio-hero__strip" />
         <div className="studio-hero__row">
           <div>
-            <h1 className="section-title studio-hero__title">Studio console</h1>
+            <h1 className="section-title studio-hero__title">Calliope DAW</h1>
             <p className="lead mt-sm studio-hero__lead">
-              Architect console + <strong>Calliope Voice Unit</strong>: rack drives both the LLM prompt (inject) and the
-              live numpy DSP preview — EQ, dynamics, tune, formant, space, and stereo motion in one column.
+              Autonomous Music Production Suite. Architect, Conduct, and Mix in one unified AI-driven environment.
             </p>
           </div>
           <div className="studio-hero__tags">
-            <span className="studio-tag">
-              <Cpu size={14} /> Router
+            <span className="studio-tag bg-blue-500/10 text-blue-400">
+              <Cpu size={14} /> AI Conductor
             </span>
-            <span className="studio-tag">
-              <Radio size={14} /> Voice DSP
+            <span className="studio-tag bg-purple-500/10 text-purple-400">
+              <Radio size={14} /> Advanced DSP
             </span>
           </div>
         </div>
       </header>
 
       <div className="flex items-center gap-2 mb-6 px-4">
+        <button
+          onClick={() => setActiveTab("arrangement")}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            activeTab === "arrangement" ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"
+          }`}
+        >
+          <Layout className="w-4 h-4 inline mr-2" />
+          Arrangement
+        </button>
         <button
           onClick={() => setActiveTab("architect")}
           className={`px-4 py-2 rounded-lg font-medium transition-colors ${
@@ -107,11 +131,11 @@ export function Studio() {
         <button
           onClick={() => setActiveTab("plugin_chain")}
           className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-            activeTab === "plugin_chain" ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"
+            activeTab === "plugin_chain" ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"
           }`}
         >
           <SlidersHorizontal className="w-4 h-4 inline mr-2" />
-          Plugin Chain
+          FX Rack
         </button>
         <button
           onClick={() => setActiveTab("clips")}
@@ -120,11 +144,28 @@ export function Studio() {
           }`}
         >
           <Music className="w-4 h-4 inline mr-2" />
-          Audio Clips
+          Library
         </button>
       </div>
 
       <div className="studio-layout">
+        {activeTab === "arrangement" && (
+          <section className="studio-col studio-col--main stack col-span-2">
+            <TimelineView
+              bpm={parseInt(bpm) || 120}
+              durationBars={32}
+              sections={sections}
+              tracks={tracks}
+            />
+            <div className="mt-6">
+              <MixerConsole
+                tracks={tracks}
+                onUpdateTrack={(id, updates) => setTracks(t => t.map(x => x.id === id ? { ...x, ...updates } : x))}
+              />
+            </div>
+          </section>
+        )}
+
         {activeTab === "architect" && (
           <section className="studio-col studio-col--main stack">
             <div className="glass-panel studio-panel stack" style={{ padding: "1.35rem" }}>
@@ -153,16 +194,6 @@ export function Studio() {
                 </div>
               </div>
 
-              <div>
-                <div className="field-label">Model override (optional)</div>
-                <input
-                  className="input"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="mistral · gpt-4o-mini · claude-3-5-haiku · anthropic/claude-3.5-sonnet"
-                />
-              </div>
-
               <div className="grid-2">
                 <div>
                   <div className="field-label">Genre override</div>
@@ -182,10 +213,16 @@ export function Studio() {
                 </div>
               </div>
 
-              <button type="button" className="btn-modern btn-primary studio-run-btn" onClick={() => void onGenerate()} disabled={busy}>
-                <Sparkles size={18} />
-                {busy ? "Generating…" : "Run Calliope"}
-              </button>
+              <div className="flex gap-4">
+                <button type="button" className="btn-modern btn-primary flex-1 py-4" onClick={() => void onGenerate()} disabled={busy}>
+                  <Layout size={18} />
+                  {busy ? "Architecting…" : "Generate Plan"}
+                </button>
+                <button type="button" className="btn-modern bg-blue-600 text-white flex-1 py-4 hover:bg-blue-500" disabled={busy}>
+                  <Sparkles size={18} />
+                  {busy ? "Conducting…" : "Conduct Full Song"}
+                </button>
+              </div>
 
               {meta && <p className="studio-meta">{meta}</p>}
 
