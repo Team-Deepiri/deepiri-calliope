@@ -1,18 +1,15 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
-import { Cpu, Radio, Sparkles, SlidersHorizontal, Mic, Music, Layout, Piano, Mic2 } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Mic } from "lucide-react";
 import { generatePlan, type GenerateDepth, type RouterProvider } from "../api/client";
+import { AudioRecorder, type AudioRecorderHandle } from "../components/audio/AudioRecorder";
+import { PluginChainEditor } from "../components/audio/PluginChainEditor";
+import { MixerConsole, type MixerTrack } from "../components/studio/MixerConsole";
+import { StudioTransport, type TransportState } from "../components/studio/StudioTransport";
+import { TimelineView } from "../components/studio/TimelineView";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
 import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
-import { AudioRecorder } from "../components/audio/AudioRecorder";
-import { PluginChainEditor } from "../components/audio/PluginChainEditor";
-import { AudioClipsManager } from "../components/audio/AudioClipsManager";
-import { TimelineView } from "../components/studio/TimelineView";
-import { MixerConsole } from "../components/studio/MixerConsole";
-import { PianoRoll } from "../components/studio/PianoRoll";
-import { VocalAIPanel } from "../components/studio/VocalAIPanel";
-import type { PluginInstance } from "../types/audio";
+import type { PluginInstance, RecordingFile } from "../types/audio";
 
 const PROVIDERS: { value: RouterProvider; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -23,198 +20,276 @@ const PROVIDERS: { value: RouterProvider; label: string }[] = [
   { value: "gemini", label: "Gemini" },
 ];
 
-type StudioTab = "architect" | "arrangement" | "sequencer" | "vocal_ai" | "vocal_studio" | "plugin_chain" | "clips";
+type InspectorTab = "vocal" | "fx" | "ai";
+
+const INITIAL_TRACKS: MixerTrack[] = [
+  { id: "1", name: "Drums", type: "drum", volume: -3, pan: 0, muted: false, solo: false, color: "#6b7a99" },
+  { id: "2", name: "Bass", type: "bass", volume: -6, pan: 0, muted: false, solo: false, color: "#8b6b9e" },
+  { id: "3", name: "Synth", type: "lead", volume: -10, pan: -0.2, muted: false, solo: false, color: "#5b8def" },
+  { id: "4", name: "Vocals", type: "vocal", volume: -4, pan: 0.05, muted: false, solo: false, color: "#3dd68c" },
+];
+
+const SECTIONS = [
+  { name: "Intro", startBar: 0, bars: 8, color: "rgba(107, 122, 153, 0.35)" },
+  { name: "Build", startBar: 8, bars: 8, color: "rgba(91, 141, 239, 0.28)" },
+  { name: "Drop", startBar: 16, bars: 16, color: "rgba(61, 214, 140, 0.22)" },
+];
 
 export function Studio() {
+  const recorderRef = useRef<AudioRecorderHandle>(null);
+  const [tracks, setTracks] = useState<MixerTrack[]>(INITIAL_TRACKS);
+  const [selectedTrackId, setSelectedTrackId] = useState("4");
+  const [vocalTakes, setVocalTakes] = useState<RecordingFile[]>([]);
+  const [vocalDockOpen, setVocalDockOpen] = useState(true);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("vocal");
+  const [viewMode, setViewMode] = useState<"arrange" | "edit">("arrange");
+  const [pluginChain, setPluginChain] = useState<PluginInstance[]>([]);
+
+  const [bpm, setBpm] = useState(132);
+  const [transport, setTransport] = useState<TransportState>({
+    playing: false,
+    recording: false,
+    armed: true,
+    bar: 1,
+    beat: 0,
+  });
+
   const [prompt, setPrompt] = useState(
-    "Dark UK garage, 132 BPM, swung hats, minor 9 chords, dubby chords on the offbeat, sing lyrics about neon skies",
+    "Dark UK garage, 132 BPM, swung hats, minor 9 chords, dubby chords on the offbeat",
   );
-  const [model, setModel] = useState("");
   const [provider, setProvider] = useState<RouterProvider>("auto");
   const [depth, setDepth] = useState<GenerateDepth>("standard");
   const [genre, setGenre] = useState("");
-  const [bpm, setBpm] = useState("132");
   const [vocalRack, setVocalRack] = useState<VocalRackPayload>({ ...DEFAULT_VOCAL_RACK });
   const [vocalInject, setVocalInject] = useState(true);
-  const [out, setOut] = useState("");
-  const [meta, setMeta] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState<StudioTab>("vocal_ai");
-  const [pluginChain, setPluginChain] = useState<PluginInstance[]>([]);
+  const [planOut, setPlanOut] = useState("");
+  const [planBusy, setPlanBusy] = useState(false);
 
-  // DAW State Mock for Arrangement View
-  const [tracks, setTracks] = useState([
-    { id: "1", name: "Drums", type: "drum", volume: -3, pan: 0, muted: false, solo: false, color: "#8b5cf6" },
-    { id: "2", name: "Sub Bass", type: "bass", volume: -6, pan: 0, muted: false, solo: false, color: "#ef4444" },
-    { id: "3", name: "Synth Lead", type: "lead", volume: -10, pan: -0.2, muted: false, solo: false, color: "#3b82f6" },
-    { id: "4", name: "Vocals (AI)", type: "vocal", volume: -4, pan: 0.1, muted: false, solo: false, color: "#10b981" },
-  ]);
+  const vocalTrack = tracks.find((t) => t.type === "vocal");
 
-  const [sections] = useState([
-    { name: "Intro", startBar: 0, bars: 8, color: "rgba(139, 92, 246, 0.3)" },
-    { name: "Build", startBar: 8, bars: 8, color: "rgba(239, 68, 68, 0.3)" },
-    { name: "Drop", startBar: 16, bars: 16, color: "rgba(59, 130, 246, 0.3)" },
-  ]);
+  const onUpdateTrack = useCallback((id: string, updates: Partial<MixerTrack>) => {
+    setTracks((t) => t.map((x) => (x.id === id ? { ...x, ...updates } : x)));
+  }, []);
 
-  async function onGenerate() {
-    setBusy(true);
-    setOut("");
-    setMeta("");
+  const onPlay = () => setTransport((t) => ({ ...t, playing: !t.playing }));
+  const onStop = () => setTransport((t) => ({ ...t, playing: false, bar: 1, beat: 0 }));
+
+  const onRecord = () => {
+    setSelectedTrackId("4");
+    setVocalDockOpen(true);
+    if (recorderRef.current?.isRecording()) {
+      recorderRef.current.toggleRecord();
+    } else {
+      recorderRef.current?.toggleRecord();
+    }
+  };
+
+  const onRecordingStateChange = (recording: boolean) => {
+    setTransport((t) => ({ ...t, recording, armed: true }));
+  };
+
+  const onRecordingComplete = (file: RecordingFile) => {
+    setVocalTakes((prev) => [...prev, file]);
+  };
+
+  async function onGeneratePlan() {
+    setPlanBusy(true);
+    setPlanOut("");
     try {
-      const bpmN = bpm.trim() ? parseInt(bpm, 10) : undefined;
       const res = await generatePlan(prompt, {
         provider,
-        model: model.trim() || undefined,
+        model: undefined,
         depth,
         genre: genre.trim() || undefined,
-        bpm_hint: bpmN && bpmN > 0 ? bpmN : undefined,
+        bpm_hint: bpm,
         vocal_rack: vocalInject ? vocalRack : undefined,
       });
-      setOut(res.response);
-      const vNote = vocalInject ? " · vocal rack on" : " · vocal rack off";
-      setMeta(`${res.provider} · ${res.model} · depth=${res.depth}${vNote}`);
+      setPlanOut(res.response);
     } catch (e) {
-      setOut(String(e));
+      setPlanOut(String(e));
     } finally {
-      setBusy(false);
+      setPlanBusy(false);
     }
   }
 
   return (
-    <motion.div className="studio-page p-6 max-w-[1600px] mx-auto" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-      <header className="studio-hero mb-12">
-        <div className="studio-hero__strip" />
-        <div className="studio-hero__row flex justify-between items-end">
-          <div>
-            <div className="flex items-center gap-4 mb-2">
-               <h1 className="text-6xl font-black text-white tracking-tighter">CALLIOPE <span className="text-blue-500">PRO</span></h1>
-               <div className="bg-blue-500/10 text-blue-500 text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-full border border-blue-500/20">Ultimate Edition</div>
-            </div>
-            <p className="text-xl text-gray-400 font-medium max-w-2xl leading-relaxed">
-              Autonomous Music Production Suite. From prompt to master, architectural precision meets neural creative flow.
-            </p>
-          </div>
-          <div className="flex gap-4">
-             <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl flex flex-col items-end">
-                <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-1">Engine Status</span>
-                <span className="text-blue-500 font-mono text-sm">CORES ACTIVE: 256</span>
-             </div>
-             <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl flex flex-col items-end">
-                <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-1">Neural Load</span>
-                <span className="text-red-500 font-mono text-sm">OPTIMIZED</span>
-             </div>
-          </div>
+    <div className="daw">
+      <header className="daw__toolbar">
+        <span className="daw-toolbar__brand">
+          <strong>CALLIOPE</strong> Studio
+        </span>
+        <StudioTransport
+          bpm={bpm}
+          onBpmChange={setBpm}
+          transport={transport}
+          onPlay={onPlay}
+          onStop={onStop}
+          onRecord={onRecord}
+        />
+        <span className="daw-toolbar__spacer" />
+        <div className="daw-toolbar__modes">
+          <button
+            type="button"
+            className={`daw-toolbar__mode${viewMode === "arrange" ? " is-active" : ""}`}
+            onClick={() => setViewMode("arrange")}
+          >
+            Arrange
+          </button>
+          <button
+            type="button"
+            className={`daw-toolbar__mode${viewMode === "edit" ? " is-active" : ""}`}
+            onClick={() => setViewMode("edit")}
+          >
+            Edit
+          </button>
         </div>
       </header>
 
-      <nav className="flex items-center gap-3 mb-8 bg-gray-900/50 p-2 rounded-2xl border border-gray-800/50 w-fit">
-        {[
-          { id: "arrangement", icon: Layout, label: "Arrangement", color: "bg-blue-600" },
-          { id: "sequencer", icon: Piano, label: "Sequencer", color: "bg-indigo-600" },
-          { id: "vocal_ai", icon: Mic2, label: "Vocal AI", color: "bg-red-600" },
-          { id: "architect", icon: Cpu, label: "Architect", color: "bg-purple-600" },
-          { id: "vocal_studio", icon: Mic, label: "Vocal Studio", color: "bg-orange-600" },
-          { id: "plugin_chain", icon: SlidersHorizontal, label: "FX Rack", color: "bg-teal-600" },
-          { id: "clips", icon: Music, label: "Library", color: "bg-green-600" },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as StudioTab)}
-            className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${
-              activeTab === tab.id ? `${tab.color} text-white shadow-lg` : "text-gray-500 hover:text-white hover:bg-gray-800"
-            }`}
-          >
-            <tab.icon size={16} />
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-
-      <div className="studio-layout grid grid-cols-12 gap-8">
-        <main className="col-span-9 space-y-8">
-          {activeTab === "arrangement" && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-              <TimelineView bpm={parseInt(bpm) || 120} durationBars={32} sections={sections} tracks={tracks} />
-              <MixerConsole tracks={tracks} onUpdateTrack={(id, updates) => setTracks(t => t.map(x => x.id === id ? { ...x, ...updates } : x))} />
-            </motion.div>
-          )}
-
-          {activeTab === "sequencer" && (
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-               <PianoRoll />
-             </motion.div>
-          )}
-
-          {activeTab === "vocal_ai" && (
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-               <VocalAIPanel />
-             </motion.div>
-          )}
-
-          {activeTab === "architect" && (
-            <div className="glass-panel studio-panel bg-gray-900/50 border border-gray-800 p-8 rounded-3xl space-y-8">
-              <div className="space-y-2">
-                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Producer Brief</label>
-                <textarea className="w-full bg-black/50 border border-gray-800 rounded-2xl p-6 text-gray-200 focus:border-purple-500 outline-none transition-colors" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} />
-              </div>
-
-              <div className="grid grid-cols-2 gap-8">
-                <div className="space-y-6">
-                   <div className="space-y-2">
-                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">AI Provider</label>
-                    <select className="w-full bg-gray-800 border border-gray-700 rounded-xl p-3 text-white font-bold" value={provider} onChange={(e) => setProvider(e.target.value as RouterProvider)}>
-                      {PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Architect Depth</label>
-                    <select className="w-full bg-gray-800 border border-gray-700 rounded-xl p-3 text-white font-bold" value={depth} onChange={(e) => setDepth(e.target.value as GenerateDepth)}>
-                      <option value="standard">Standard (Tight Sections)</option>
-                      <option value="deep">Deep (Full JSON Analysis)</option>
-                    </select>
-                  </div>
+      <div className="daw__workspace">
+        <aside className="daw-tracks">
+          <div className="daw-tracks__head">Tracks</div>
+          <div className="daw-tracks__list">
+            {tracks.map((track) => (
+              <div
+                key={track.id}
+                role="button"
+                tabIndex={0}
+                className={`daw-track-row${selectedTrackId === track.id ? " is-selected" : ""}`}
+                onClick={() => setSelectedTrackId(track.id)}
+                onKeyDown={(e) => e.key === "Enter" && setSelectedTrackId(track.id)}
+              >
+                <span className="daw-track-row__swatch" style={{ background: track.color }} />
+                <div className="daw-track-row__info">
+                  <div className="daw-track-row__name">{track.name}</div>
+                  <div className="daw-track-row__type">{track.type}</div>
                 </div>
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Style Overrides</label>
-                    <input className="w-full bg-gray-800 border border-gray-700 rounded-xl p-3 text-white font-bold" value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="e.g. Acid Techno" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Global Tempo</label>
-                    <input className="w-full bg-gray-800 border border-gray-700 rounded-xl p-3 text-white font-bold" type="number" value={bpm} onChange={(e) => setBpm(e.target.value)} />
-                  </div>
-                </div>
+                {track.type === "vocal" && (
+                  <button
+                    type="button"
+                    className={`daw-track-row__arm${transport.armed ? " is-armed" : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTransport((t) => ({ ...t, armed: !t.armed }));
+                    }}
+                    title="Arm vocal input"
+                  >
+                    R
+                  </button>
+                )}
               </div>
+            ))}
+          </div>
+        </aside>
 
-              <div className="flex gap-6">
-                <button onClick={() => void onGenerate()} disabled={busy} className="flex-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black py-6 rounded-2xl shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3">
-                  <Layout size={24} />
-                  {busy ? "ARCHITECTING..." : "GENERATE PRODUCTION PLAN"}
-                </button>
-                <button disabled={busy} className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-black py-6 rounded-2xl shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3">
-                  <Sparkles size={24} />
-                  {busy ? "CONDUCTING..." : "CONDUCT FULL MASTER"}
-                </button>
-              </div>
+        <div className="daw-center">
+          <div className="daw-arrange">
+            <TimelineView
+              bpm={bpm}
+              durationBars={32}
+              sections={SECTIONS}
+              tracks={tracks}
+              selectedTrackId={selectedTrackId}
+              playheadBar={transport.bar}
+              vocalTakes={vocalTakes}
+            />
+          </div>
+
+          <div className={`daw-vocal-dock${vocalDockOpen ? "" : " is-collapsed"}`}>
+            <div
+              className="daw-vocal-dock__head"
+              onClick={() => setVocalDockOpen((o) => !o)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && setVocalDockOpen((o) => !o)}
+            >
+              <h3>
+                <Mic size={14} />
+                Vocal input · {vocalTrack?.name ?? "Vocals"}
+              </h3>
+              {vocalDockOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
             </div>
-          )}
+            {vocalDockOpen && (
+              <div className="daw-vocal-dock__body">
+                <AudioRecorder
+                  ref={recorderRef}
+                  variant="daw"
+                  onRecordingComplete={(file) => onRecordingComplete(file)}
+                  onRecordingStateChange={onRecordingStateChange}
+                />
+              </div>
+            )}
+          </div>
+        </div>
 
-          {activeTab === "vocal_studio" && <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl"><AudioRecorder /></div>}
-          {activeTab === "plugin_chain" && <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl"><PluginChainEditor chain={pluginChain} onChange={setPluginChain} onBypass={() => setPluginChain([])} /></div>}
-          {activeTab === "clips" && <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl"><AudioClipsManager /></div>}
-        </main>
-
-        <aside className="col-span-3 space-y-8">
-           <div className="bg-gray-900/50 border border-gray-800 p-6 rounded-3xl">
-             <VocalRackPanel value={vocalRack} onChange={setVocalRack} injectEnabled={vocalInject} onInjectChange={setVocalInject} />
-           </div>
-           {(activeTab === "architect" || activeTab === "vocal_ai") && (
-             <div className="bg-gray-950 border border-gray-900 p-6 rounded-3xl">
-                <VoiceDspPanel rack={vocalRack} sampleRate={48_000} />
-             </div>
-           )}
+        <aside className="daw-inspector">
+          <div className="daw-inspector__tabs">
+            {(
+              [
+                ["vocal", "Vocal"],
+                ["fx", "FX"],
+                ["ai", "AI"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`daw-inspector__tab${inspectorTab === id ? " is-active" : ""}`}
+                onClick={() => setInspectorTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="daw-inspector__content">
+            {inspectorTab === "vocal" && (
+              <>
+                <VocalRackPanel
+                  value={vocalRack}
+                  onChange={setVocalRack}
+                  injectEnabled={vocalInject}
+                  onInjectChange={setVocalInject}
+                />
+                <div style={{ marginTop: "0.75rem" }}>
+                  <VoiceDspPanel rack={vocalRack} sampleRate={48_000} />
+                </div>
+              </>
+            )}
+            {inspectorTab === "fx" && (
+              <PluginChainEditor chain={pluginChain} onChange={setPluginChain} onBypass={() => setPluginChain([])} />
+            )}
+            {inspectorTab === "ai" && (
+              <div className="daw-architect">
+                <div>
+                  <label>Brief</label>
+                  <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} />
+                </div>
+                <div>
+                  <label>Provider</label>
+                  <select value={provider} onChange={(e) => setProvider(e.target.value as RouterProvider)}>
+                    {PROVIDERS.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label>Genre</label>
+                  <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="UK garage" />
+                </div>
+                <button type="button" className="daw-architect__run" disabled={planBusy} onClick={() => void onGeneratePlan()}>
+                  {planBusy ? "Generating…" : "Generate plan"}
+                </button>
+                {planOut && <pre className="daw-architect__out">{planOut}</pre>}
+              </div>
+            )}
+          </div>
         </aside>
       </div>
-    </motion.div>
+
+      <div className="daw__mixer-wrap">
+        <MixerConsole tracks={tracks} onUpdateTrack={onUpdateTrack} />
+      </div>
+    </div>
   );
 }

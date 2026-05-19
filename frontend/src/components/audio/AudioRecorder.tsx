@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import {
   Mic,
   Square,
@@ -37,15 +37,22 @@ import {
 } from "../../types/audio";
 import type { VocalRackPayload } from "../../types/vocalRack";
 
+export type AudioRecorderHandle = {
+  toggleRecord: () => void;
+  isRecording: () => boolean;
+};
+
 interface AudioRecorderProps {
+  variant?: "default" | "daw";
   onRecordingComplete?: (file: RecordingFile, sessionId: string) => void;
   onProcessedAudio?: (outputFile: string, metrics: Record<string, number>) => void;
+  onRecordingStateChange?: (recording: boolean) => void;
 }
 
-export function AudioRecorder({
-  onRecordingComplete,
-  onProcessedAudio,
-}: AudioRecorderProps) {
+export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>(function AudioRecorder(
+  { variant = "default", onRecordingComplete, onProcessedAudio, onRecordingStateChange },
+  ref,
+) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -73,6 +80,18 @@ export function AudioRecorder({
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   
+  useImperativeHandle(ref, () => ({
+    toggleRecord: () => {
+      if (isRecording) stopRecording();
+      else void startRecording();
+    },
+    isRecording: () => isRecording,
+  }));
+
+  useEffect(() => {
+    onRecordingStateChange?.(isRecording);
+  }, [isRecording, onRecordingStateChange]);
+
   useEffect(() => {
     loadPlugins();
   }, []);
@@ -240,11 +259,11 @@ export function AudioRecorder({
       
       analyser.getByteTimeDomainData(dataArray);
       
-      ctx.fillStyle = "rgb(20, 20, 30)";
+      ctx.fillStyle = variant === "daw" ? "#0a0b0e" : "rgb(20, 20, 30)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
       ctx.lineWidth = 2;
-      ctx.strokeStyle = isRecording ? "rgb(239, 68, 68)" : "rgb(100, 100, 200)";
+      ctx.strokeStyle = isRecording ? "#f2555a" : "#6b9fff";
       ctx.beginPath();
       
       const sliceWidth = canvas.width / bufferLength;
@@ -403,6 +422,61 @@ export function AudioRecorder({
     }
   };
   
+  if (variant === "daw") {
+    return (
+      <div className="daw-rec">
+        <input ref={fileInputRef} type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.webm" onChange={handleFileInputChange} hidden />
+        <canvas ref={canvasRef} width={800} height={72} className="daw-rec__wave" />
+        <div className="daw-rec__controls">
+          {isRecording && (
+            <div className="daw-rec__status">
+              <span className="daw-rec__status-dot" />
+              REC
+            </div>
+          )}
+          <span className="daw-rec__time">{formatTime(recordingTime)}</span>
+          <div className="daw-rec__actions">
+            {!isRecording ? (
+              <button type="button" className="daw-rec__btn daw-rec__btn--record" onClick={() => void startRecording()}>
+                <Mic size={16} />
+                Record
+              </button>
+            ) : (
+              <>
+                <button type="button" className="daw-rec__btn daw-rec__btn--icon" onClick={pauseRecording}>
+                  {isPaused ? <Play size={16} /> : <Pause size={16} />}
+                </button>
+                <button type="button" className="daw-rec__btn daw-rec__btn--record" onClick={stopRecording}>
+                  <Square size={14} fill="currentColor" />
+                  Stop
+                </button>
+              </>
+            )}
+            <button type="button" className="daw-rec__btn daw-rec__btn--icon" onClick={handleBrowseFiles} title="Import">
+              <Upload size={16} />
+            </button>
+          </div>
+        </div>
+        {files.length > 0 && (
+          <div className="daw-rec__takes">
+            {files.map((file) => (
+              <button
+                key={file.id}
+                type="button"
+                className={`daw-rec__take${selectedFile?.id === file.id ? " is-selected" : ""}`}
+                onClick={() => setSelectedFile(file)}
+              >
+                <Mic size={12} />
+                {file.filename}
+              </button>
+            ))}
+          </div>
+        )}
+        {isProcessing && <div className="daw-rec__status">Processing…</div>}
+      </div>
+    );
+  }
+
   return (
     <div className="bg-gray-900 rounded-xl p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -770,4 +844,4 @@ export function AudioRecorder({
       </AnimatePresence>
     </div>
   );
-}
+});
