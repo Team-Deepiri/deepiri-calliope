@@ -22,20 +22,20 @@ import {
   applyAutotune,
   processRecording,
   listPlugins,
-} from "../api/client";
+} from "../../api/client";
 import type {
   RecordingSession,
   RecordingFile,
   PluginInfo,
   AutotuneConfig,
-} from "../types/audio";
+} from "../../types/audio";
 import {
   DEFAULT_AUTOTUNE_CONFIG,
   SCALE_TYPES,
   AUTOTUNE_MODES,
   PLUGIN_CATEGORIES,
-} from "../types/audio";
-import type { VocalRackPayload } from "../types/vocalRack";
+} from "../../types/audio";
+import type { VocalRackPayload } from "../../types/vocalRack";
 
 interface AudioRecorderProps {
   onRecordingComplete?: (file: RecordingFile, sessionId: string) => void;

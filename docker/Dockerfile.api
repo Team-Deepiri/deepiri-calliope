@@ -15,9 +15,11 @@ RUN --mount=type=ssh \
 COPY backend/pyproject.toml backend/poetry.lock /app/
 COPY backend/src /app/src
 
-RUN pip install --no-cache-dir poetry==2.2.1 \
+RUN --mount=type=ssh \
+    pip install --no-cache-dir "setuptools<81" wheel poetry==2.2.1 \
+    && pip install --no-cache-dir --no-build-isolation crepe==0.0.16 \
     && poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi --only main
+    && poetry install --no-interaction --no-ansi --only main --no-root
 
 ENV PYTHONPATH=/app/src:/opt/Aamati
 EXPOSE 8080
