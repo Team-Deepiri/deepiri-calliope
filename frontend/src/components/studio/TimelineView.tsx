@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { RecordingFile } from "../../types/audio";
 
 const BAR_W = 40;
@@ -17,6 +18,7 @@ type TimelineViewProps = {
   selectedTrackId: string | null;
   playheadBar: number;
   vocalTakes?: RecordingFile[];
+  onFileDrop?: (trackId: string, file: File) => void;
 };
 
 export function TimelineView({
@@ -26,7 +28,9 @@ export function TimelineView({
   selectedTrackId,
   playheadBar,
   vocalTakes = [],
+  onFileDrop,
 }: TimelineViewProps) {
+  const [dragOverTrack, setDragOverTrack] = useState<string | null>(null);
   const totalWidth = durationBars * BAR_W;
   const playheadLeft = playheadBar * BAR_W;
 
@@ -45,7 +49,20 @@ export function TimelineView({
       <div className="daw-timeline__scroll">
         <div className="daw-timeline__grid" style={{ width: totalWidth, position: "relative" }}>
           {tracks.map((track) => (
-            <div key={track.id} className="daw-timeline__lane">
+            <div
+              key={track.id}
+              className={`daw-timeline__lane${dragOverTrack === track.id ? " is-drag-over" : ""}`}
+              onDragOver={(e) => { e.preventDefault(); setDragOverTrack(track.id); }}
+              onDragLeave={() => setDragOverTrack(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverTrack(null);
+                const file = Array.from(e.dataTransfer.files).find(
+                  (f) => f.type.startsWith("audio/") || /\.(wav|mp3|ogg|flac|m4a|aac|webm)$/i.test(f.name)
+                );
+                if (file) onFileDrop?.(track.id, file);
+              }}
+            >
               <div className="daw-timeline__lane-bg">
                 {sections.map((section, idx) => (
                   <div

@@ -42,6 +42,53 @@ export type AudioRecorderHandle = {
   isRecording: () => boolean;
 };
 
+async function encodeBlobToWav(blob: Blob): Promise<Blob> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  try {
+    const audio = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const numCh = audio.numberOfChannels;
+    const sampleRate = audio.sampleRate;
+    const numSamples = audio.length;
+    const bytesPerSample = 2;
+    const blockAlign = numCh * bytesPerSample;
+    const dataSize = numSamples * blockAlign;
+    const out = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(out);
+    let off = 0;
+    const writeStr = (s: string) => {
+      for (let i = 0; i < s.length; i++) view.setUint8(off++, s.charCodeAt(i));
+    };
+    const u32 = (v: number) => { view.setUint32(off, v, true); off += 4; };
+    const u16 = (v: number) => { view.setUint16(off, v, true); off += 2; };
+    writeStr("RIFF");
+    u32(36 + dataSize);
+    writeStr("WAVE");
+    writeStr("fmt ");
+    u32(16);
+    u16(1);
+    u16(numCh);
+    u32(sampleRate);
+    u32(sampleRate * blockAlign);
+    u16(blockAlign);
+    u16(16);
+    writeStr("data");
+    u32(dataSize);
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < numCh; c++) channels.push(audio.getChannelData(c));
+    for (let i = 0; i < numSamples; i++) {
+      for (let c = 0; c < numCh; c++) {
+        let s = Math.max(-1, Math.min(1, channels[c][i]));
+        view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+        off += 2;
+      }
+    }
+    return new Blob([out], { type: "audio/wav" });
+  } finally {
+    ctx.close();
+  }
+}
+
 interface AudioRecorderProps {
   variant?: "default" | "daw";
   onRecordingComplete?: (file: RecordingFile, sessionId: string) => void;
@@ -64,11 +111,13 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   const [showPlugins, setShowPlugins] = useState(false);
   const [autotuneConfig, setAutotuneConfig] = useState<AutotuneConfig>(DEFAULT_AUTOTUNE_CONFIG);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [waveformData, setWaveformData] = useState<number[]>([]);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [playingFileId, setPlayingFileId] = useState<string | null>(null);
+  const isRecordingRef = useRef(false);
+  const audioPlayRef = useRef<HTMLAudioElement | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -82,13 +131,14 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   
   useImperativeHandle(ref, () => ({
     toggleRecord: () => {
-      if (isRecording) stopRecording();
+      if (isRecordingRef.current) stopRecording();
       else void startRecording();
     },
-    isRecording: () => isRecording,
+    isRecording: () => isRecordingRef.current,
   }));
 
   useEffect(() => {
+    isRecordingRef.current = isRecording;
     onRecordingStateChange?.(isRecording);
   }, [isRecording, onRecordingStateChange]);
 
@@ -195,33 +245,31 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   };
   
   const handleRecordingComplete = async (blob: Blob) => {
-    if (!currentSession) {
-      const session = await createRecordingSession("Recording " + new Date().toLocaleTimeString());
-      setCurrentSession(session);
-    }
-    
-    const file = new File([blob], "recording.webm", { type: "audio/webm" });
-    
     try {
-      const result = await uploadRecordingFile(
-        currentSession?.id || "",
-        file,
-        "vocal"
-      );
-      
+      let session = currentSession;
+      if (!session) {
+        session = await createRecordingSession("Recording " + new Date().toLocaleTimeString());
+        setCurrentSession(session);
+      }
+
+      const wavBlob = await encodeBlobToWav(blob);
+      const file = new File([wavBlob], "recording.wav", { type: "audio/wav" });
+
+      const result = await uploadRecordingFile(session.id, file, "vocal");
+
       const newFile: RecordingFile = {
         id: result.recording_id,
         filename: result.filename,
-        original_name: "recording.webm",
-        format: "webm",
+        original_name: "recording.wav",
+        format: "wav",
         duration_sec: result.duration_sec,
         track_type: "vocal",
         uploaded_at: new Date().toISOString(),
       };
-      
+
       setFiles((prev) => [...prev, newFile]);
       setSelectedFile(newFile);
-      onRecordingComplete?.(newFile, currentSession?.id || "");
+      onRecordingComplete?.(newFile, session.id);
     } catch (e) {
       console.error("Failed to upload recording:", e);
     }
@@ -243,55 +291,67 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   const startVisualization = () => {
     const canvas = canvasRef.current;
     const analyser = analyserRef.current;
-    
     if (!canvas || !analyser) return;
-    
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    
+
+    const fftSize = analyser.fftSize;
+    const freqLen = analyser.frequencyBinCount;
+    const timeData = new Uint8Array(fftSize);
+    const freqData = new Uint8Array(freqLen);
+    const W = canvas.width;
+    const H = canvas.height;
+    const topH = Math.floor(H * 0.55);
+    const botH = H - topH;
+
     const draw = () => {
-      if (!analyser) return;
-      
       animationRef.current = requestAnimationFrame(draw);
-      
-      analyser.getByteTimeDomainData(dataArray);
-      
-      ctx.fillStyle = variant === "daw" ? "#0a0b0e" : "rgb(20, 20, 30)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = isRecording ? "#f2555a" : "#6b9fff";
+      const rec = isRecordingRef.current;
+
+      analyser.getByteTimeDomainData(timeData);
+      analyser.getByteFrequencyData(freqData);
+
+      ctx.fillStyle = "#0a0b0e";
+      ctx.fillRect(0, 0, W, H);
+
+      // --- waveform (top) ---
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = rec ? "#f2555a" : "#3b5bdb";
+      if (rec) {
+        ctx.shadowColor = "#f2555a";
+        ctx.shadowBlur = 6;
+      } else {
+        ctx.shadowBlur = 0;
+      }
       ctx.beginPath();
-      
-      const sliceWidth = canvas.width / bufferLength;
-      let x = 0;
-      
-      for (let i = 0; i < bufferLength; i++) {
-        const v = dataArray[i] / 128.0;
-        const y = (v * canvas.height) / 2;
-        
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-        
-        x += sliceWidth;
+      const slice = W / fftSize;
+      for (let i = 0; i < fftSize; i++) {
+        const v = timeData[i] / 128.0;
+        const y = (v * topH) / 2;
+        if (i === 0) ctx.moveTo(0, y);
+        else ctx.lineTo(i * slice, y);
       }
-      
-      ctx.lineTo(canvas.width, canvas.height / 2);
       ctx.stroke();
-      
-      const peaks: number[] = [];
-      for (let i = 0; i < bufferLength; i += 64) {
-        peaks.push((dataArray[i] / 128.0) - 1);
+      ctx.shadowBlur = 0;
+
+      // --- frequency bars (bottom) ---
+      const barCount = 64;
+      const barW = W / barCount - 1;
+      const step = Math.floor(freqLen / barCount);
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += freqData[i * step + j];
+        const avg = sum / step;
+        const barH = (avg / 255) * botH;
+        const t = avg / 255;
+        const r = Math.round(59 + t * (242 - 59));
+        const g = Math.round(91 + t * (85 - 91));
+        const b = Math.round(219 + t * (90 - 219));
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(i * (barW + 1), H - barH, barW, barH);
       }
-      setWaveformData(peaks);
     };
-    
+
     draw();
   };
   
@@ -426,7 +486,7 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
     return (
       <div className="daw-rec">
         <input ref={fileInputRef} type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.webm" onChange={handleFileInputChange} hidden />
-        <canvas ref={canvasRef} width={800} height={72} className="daw-rec__wave" />
+        <canvas ref={canvasRef} width={800} height={120} className="daw-rec__wave" />
         <div className="daw-rec__controls">
           {isRecording && (
             <div className="daw-rec__status">
@@ -460,15 +520,43 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
         {files.length > 0 && (
           <div className="daw-rec__takes">
             {files.map((file) => (
-              <button
-                key={file.id}
-                type="button"
-                className={`daw-rec__take${selectedFile?.id === file.id ? " is-selected" : ""}`}
-                onClick={() => setSelectedFile(file)}
-              >
-                <Mic size={12} />
-                {file.filename}
-              </button>
+              <div key={file.id} className={`daw-rec__take${selectedFile?.id === file.id ? " is-selected" : ""}`}>
+                <button
+                  type="button"
+                  className="daw-rec__take-label"
+                  onClick={() => setSelectedFile(file)}
+                >
+                  <Mic size={12} />
+                  {file.original_name || file.filename}
+                  {file.duration_sec > 0 && (
+                    <span className="daw-rec__take-dur">
+                      {Math.floor(file.duration_sec / 60).toString().padStart(2, "0")}:{Math.round(file.duration_sec % 60).toString().padStart(2, "0")}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="daw-rec__take-play"
+                  title={playingFileId === file.id ? "Stop" : "Play"}
+                  onClick={() => {
+                    if (playingFileId === file.id) {
+                      audioPlayRef.current?.pause();
+                      setPlayingFileId(null);
+                    } else {
+                      const session = currentSession;
+                      if (!session) return;
+                      const url = `/v1/recordings/sessions/${session.id}/files/${file.id}/download`;
+                      if (!audioPlayRef.current) audioPlayRef.current = new Audio();
+                      audioPlayRef.current.src = url;
+                      audioPlayRef.current.onended = () => setPlayingFileId(null);
+                      void audioPlayRef.current.play();
+                      setPlayingFileId(file.id);
+                    }
+                  }}
+                >
+                  {playingFileId === file.id ? <Square size={11} fill="currentColor" /> : <Play size={11} />}
+                </button>
+              </div>
             ))}
           </div>
         )}

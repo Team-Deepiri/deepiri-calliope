@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Mic } from "lucide-react";
-import { generatePlan, type GenerateDepth, type RouterProvider } from "../api/client";
+import { generatePlan, createRecordingSession, uploadRecordingFile, type GenerateDepth, type RouterProvider } from "../api/client";
 import { AudioRecorder, type AudioRecorderHandle } from "../components/audio/AudioRecorder";
 import { PluginChainEditor } from "../components/audio/PluginChainEditor";
 import { MixerConsole, type MixerTrack } from "../components/studio/MixerConsole";
@@ -37,6 +37,7 @@ const SECTIONS = [
 
 export function Studio() {
   const recorderRef = useRef<AudioRecorderHandle>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const [tracks, setTracks] = useState<MixerTrack[]>(INITIAL_TRACKS);
   const [selectedTrackId, setSelectedTrackId] = useState("4");
   const [vocalTakes, setVocalTakes] = useState<RecordingFile[]>([]);
@@ -88,9 +89,33 @@ export function Studio() {
     setTransport((t) => ({ ...t, recording, armed: true }));
   };
 
-  const onRecordingComplete = (file: RecordingFile) => {
+  const onRecordingComplete = (file: RecordingFile, sessionId: string) => {
+    sessionIdRef.current = sessionId;
     setVocalTakes((prev) => [...prev, file]);
   };
+
+  const onTrackFileDrop = useCallback(async (trackId: string, file: File) => {
+    try {
+      if (!sessionIdRef.current) {
+        const s = await createRecordingSession("Session " + new Date().toLocaleTimeString());
+        sessionIdRef.current = s.id;
+      }
+      const track = tracks.find((t) => t.id === trackId);
+      const result = await uploadRecordingFile(sessionIdRef.current!, file, track?.type ?? "audio");
+      const newFile: RecordingFile = {
+        id: result.recording_id,
+        filename: result.filename,
+        original_name: file.name,
+        format: file.name.split(".").pop()?.toLowerCase() ?? "audio",
+        duration_sec: result.duration_sec,
+        track_type: track?.type ?? "audio",
+        uploaded_at: new Date().toISOString(),
+      };
+      setVocalTakes((prev) => [...prev, newFile]);
+    } catch (e) {
+      console.error("Track drop upload failed:", e);
+    }
+  }, [tracks]);
 
   async function onGeneratePlan() {
     setPlanBusy(true);
@@ -191,6 +216,7 @@ export function Studio() {
               selectedTrackId={selectedTrackId}
               playheadBar={transport.bar}
               vocalTakes={vocalTakes}
+              onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
             />
           </div>
 
