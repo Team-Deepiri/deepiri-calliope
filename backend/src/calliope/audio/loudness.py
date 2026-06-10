@@ -211,6 +211,13 @@ def true_peak_detector(samples: np.ndarray, sr: int, oversample: int = 4) -> flo
     return peak_db
 
 
+def measure_lufs(samples: np.ndarray, sr: int = 48000) -> float:
+    """Convenience function: measure integrated LUFS of audio array."""
+    meter = LUFSMeter(sr)
+    readings = meter.update(samples)
+    return readings["integrated_lufs"]
+
+
 class DynamicRangeMeter:
     """Measure dynamic range (DR) for mastering."""
 
