@@ -1,3 +1,30 @@
+export interface MixerChannel {
+  id: string;
+  name: string;
+  type: "audio" | "instrument" | "bus" | "aux" | "master" | "vca";
+  volume: number;
+  pan: number;
+  muted: boolean;
+  solo: boolean;
+  color: string;
+  sends: Array<{ sendId: string; level: number }>;
+  outputBus?: string;
+  vcaGroup?: string;
+  sidechainSource?: string;
+  pluginCount: number;
+  vuLevel: number;
+  eqActive: boolean;
+  compActive: boolean;
+  gainReduction: number;
+}
+
+export interface RoutingNode {
+  id: string;
+  type: "source" | "effect" | "bus" | "send" | "output";
+  name: string;
+  connections: string[];
+}
+
 export interface RecordingSession {
   id: string;
   name: string;
@@ -113,3 +140,47 @@ export const AUTOTUNE_MODES = [
   { value: "soft", label: "Soft", hint: "Gentle smoothing" },
   { value: "melodic", label: "Melodic", hint: "Vocal-friendly" },
 ];
+
+export interface AutomationPoint {
+  time_ms: number;
+  value: number;
+  curve: "linear" | "exponential" | "logarithmic" | "s_curve" | "step" | "smooth";
+}
+
+export interface AutomationTrack {
+  name: string;
+  points: AutomationPoint[];
+  min_value: number;
+  max_value: number;
+}
+
+export interface AutomationTrackSummary {
+  name: string;
+  point_count: number;
+  min_value: number;
+  max_value: number;
+}
+
+export interface LFOConfig {
+  waveform: "sine" | "square" | "triangle" | "sawtooth" | "smooth_square" | "random";
+  frequency: number;
+  amplitude: number;
+  offset: number;
+}
+
+export interface ADSRConfig {
+  attack_ms: number;
+  decay_ms: number;
+  sustain_level: number;
+  release_ms: number;
+  gate_on?: number;
+  gate_off?: number;
+}
+
+export interface SidechainConfig {
+  attack_ms: number;
+  release_ms: number;
+  threshold: number;
+  depth: number;
+  ceiling: number;
+}

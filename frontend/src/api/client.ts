@@ -407,10 +407,62 @@ export async function createStudioSession(
   name: string,
   bpm = 120,
   key = "C",
-): Promise<{ id: string; name: string; bpm: number }> {
+): Promise<{ id: string; name: string; bpm: number; created_at?: string; track_count?: number }> {
   const r = await fetch(`${base}/v1/sessions/create?name=${encodeURIComponent(name)}&bpm=${bpm}&key=${key}`, {
     method: "POST",
   });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function createSessionFromTemplate(
+  name: string,
+  template: string,
+): Promise<{ id: string; name: string; created_at: string; bpm: number; key: string; track_count: number }> {
+  const r = await fetch(`${base}/v1/sessions/create-from-template?name=${encodeURIComponent(name)}&template=${encodeURIComponent(template)}`, {
+    method: "POST",
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function saveSession(
+  sessionId: string,
+): Promise<{ id: string; name: string; updated_at: string; saved: boolean }> {
+  const r = await fetch(`${base}/v1/sessions/${sessionId}/save`, {
+    method: "POST",
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getRecentSessions(limit = 10): Promise<{ recent: Array<{ id: string; name: string; bpm: number; key: string; track_count: number; updated_at: string }> }> {
+  const r = await fetch(`${base}/v1/sessions/recent?limit=${limit}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getTemplates(): Promise<{ templates: Array<{ name: string; label: string; description: string; bpm: number; key: string; track_count: number }> }> {
+  const r = await fetch(`${base}/v1/sessions/templates`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function freezeTrack(
+  sessionId: string,
+  trackId: string,
+): Promise<{ id: string; track_id: string; frozen: boolean }> {
+  const r = await fetch(`${base}/v1/sessions/${sessionId}/freeze-track?track_id=${trackId}`, {
+    method: "POST",
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function exportStems(
+  sessionId: string,
+): Promise<{ session_id: string; session_name: string; stems: Array<{ track_id: string; track_name: string; track_type: string; clip_count: number }> }> {
+  const r = await fetch(`${base}/v1/sessions/${sessionId}/export-stems`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -835,6 +887,187 @@ export async function warpTempo(
   return r.json();
 }
 
+export async function createAutomationTrack(name: string, minValue = 0, maxValue = 1): Promise<{ status: string; track_name: string }> {
+  const r = await fetch(`${base}/v1/automation/track`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, min_value: minValue, max_value: maxValue }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function addAutomationPoint(
+  trackName: string,
+  timeMs: number,
+  value: number,
+  curve = "linear",
+): Promise<{ status: string; track_name: string }> {
+  const r = await fetch(`${base}/v1/automation/track/${encodeURIComponent(trackName)}/point`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ time_ms: timeMs, value, curve }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getAutomationTrack(trackName: string): Promise<{
+  name: string;
+  min_value: number;
+  max_value: number;
+  points: { time_ms: number; value: number; curve: string }[];
+}> {
+  const r = await fetch(`${base}/v1/automation/track/${encodeURIComponent(trackName)}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function generateEnvelope(
+  trackName: string,
+  durationMs: number,
+  sampleRate = 48000,
+): Promise<{ track_name: string; envelope: number[]; duration_ms: number; sample_rate: number }> {
+  const r = await fetch(`${base}/v1/automation/track/${encodeURIComponent(trackName)}/envelope`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track_name: trackName, duration_ms: durationMs, sample_rate: sampleRate }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function applyAutomation(
+  trackName: string,
+  samples: number[],
+  sampleRate = 48000,
+): Promise<{ samples: number[]; sample_rate: number }> {
+  const r = await fetch(`${base}/v1/automation/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track_name: trackName, samples, sample_rate: sampleRate }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function generateLFO(
+  numSamples: number,
+  frequency = 1.0,
+  waveform = "sine",
+  amplitude = 1.0,
+  offset = 0.0,
+): Promise<{ signal: number[] }> {
+  const r = await fetch(`${base}/v1/automation/lfo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ num_samples: numSamples, frequency, waveform, amplitude, offset }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function generateADSR(
+  numSamples: number,
+  attackMs = 10,
+  decayMs = 100,
+  sustainLevel = 0.7,
+  releaseMs = 200,
+  gateOn?: number,
+  gateOff?: number,
+): Promise<{ envelope: number[] }> {
+  const r = await fetch(`${base}/v1/automation/adsr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      num_samples: numSamples,
+      attack_ms: attackMs,
+      decay_ms: decayMs,
+      sustain_level: sustainLevel,
+      release_ms: releaseMs,
+      gate_on: gateOn,
+      gate_off: gateOff,
+    }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function generateSidechain(
+  audio: number[],
+  attackMs = 5.0,
+  releaseMs = 50.0,
+  threshold = 0.1,
+  depth = 0.5,
+  ceiling = 1.0,
+): Promise<{ envelope: number[] }> {
+  const r = await fetch(`${base}/v1/automation/sidechain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      audio,
+      attack_ms: attackMs,
+      release_ms: releaseMs,
+      threshold,
+      depth,
+      ceiling,
+    }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function listAutomationTracks(): Promise<{
+  tracks: { name: string; point_count: number; min_value: number; max_value: number }[];
+}> {
+  const r = await fetch(`${base}/v1/automation/tracks`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function deleteAutomationTrack(trackName: string): Promise<{ status: string; track_name: string }> {
+  const r = await fetch(`${base}/v1/automation/track/${encodeURIComponent(trackName)}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function generateModulationLFO(
+  numSamples: number,
+  waveform = "sine",
+  frequency = 1.0,
+  amplitude = 1.0,
+  offset = 0.0,
+): Promise<{ signal: number[]; waveform: string }> {
+  const r = await fetch(`${base}/v1/modulation/lfo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ num_samples: numSamples, waveform, frequency, amplitude, offset }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function applyModulation(
+  audio: number[],
+  carrier: number[],
+  depth = 1.0,
+  mode: "multiply" | "add" | "ring" = "multiply",
+): Promise<{ samples: number[]; mode: string }> {
+  const r = await fetch(`${base}/v1/modulation/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ audio, carrier, depth, mode }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function listModulationWaveforms(): Promise<{ waveforms: string[] }> {
+  const r = await fetch(`${base}/v1/modulation/waveforms`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
 export async function createSlicedRack(
   recordingId: string,
   targetTempo: number,
@@ -854,6 +1087,100 @@ export async function createSlicedRack(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function addRoutingNode(sessionId: string, type: string, name: string): Promise<{ id: string; type: string; name: string }> {
+  const r = await fetch(`${base}/v1/routing/node`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, type, name }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function removeRoutingNode(nodeId: string, sessionId = "default"): Promise<{ status: string; node_id: string }> {
+  const r = await fetch(`${base}/v1/routing/node/${nodeId}?session_id=${sessionId}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function connectRoutingNodes(sessionId: string, fromId: string, toId: string): Promise<{ status: string; from: string; to: string }> {
+  const r = await fetch(`${base}/v1/routing/connect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, from_id: fromId, to_id: toId }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function disconnectRoutingNodes(sessionId: string, fromId: string, toId: string): Promise<{ status: string; from: string; to: string }> {
+  const r = await fetch(`${base}/v1/routing/disconnect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, from_id: fromId, to_id: toId }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getRoutingGraph(sessionId = "default"): Promise<Record<string, unknown>> {
+  const r = await fetch(`${base}/v1/routing/graph?session_id=${sessionId}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function renderAudioGraph(sessionId = "default", durationSec = 10.0): Promise<{ duration_sec: number; sample_rate: number; samples: number[]; channels: number }> {
+  const r = await fetch(`${base}/v1/routing/render`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, duration_sec: durationSec }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function createAudioBus(sessionId: string, name: string, volume = 1.0): Promise<{ id: string; name: string; volume: number }> {
+  const r = await fetch(`${base}/v1/routing/bus`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, name, volume }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function createFxSend(sessionId: string, name: string, level = 0.5, sourceId = "", destinationId = ""): Promise<{ id: string; name: string; level: number }> {
+  const r = await fetch(`${base}/v1/routing/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, name, level, source_id: sourceId, destination_id: destinationId }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function removeFxSend(sendId: string, sessionId = "default"): Promise<{ status: string; send_id: string }> {
+  const r = await fetch(`${base}/v1/routing/send/${sendId}?session_id=${sessionId}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function createVCAGroup(sessionId: string, name: string, volume = 1.0): Promise<{ id: string; name: string; volume: number }> {
+  const r = await fetch(`${base}/v1/routing/vca`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, name, volume }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function assignTrackToVCA(vcaId: string, trackId: string, sessionId = "default"): Promise<{ status: string; track_id: string; vca_id: string }> {
+  const r = await fetch(`${base}/v1/routing/vca/${vcaId}/assign/${trackId}?session_id=${sessionId}`, { method: "POST" });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
