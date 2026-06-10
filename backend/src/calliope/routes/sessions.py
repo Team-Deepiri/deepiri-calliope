@@ -4,9 +4,51 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from calliope.audio.session_manager import get_session_manager, StudioSession
+from calliope.audio.session_manager import get_session_manager
 
 router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
+
+
+@router.get("/recent")
+async def list_recent_sessions(limit: int = 10) -> dict:
+    """
+    List recently accessed sessions.
+    """
+    manager = get_session_manager()
+    projects = manager.list_recent_projects(limit)
+    return {"recent": projects}
+
+
+@router.get("/templates")
+async def list_templates() -> dict:
+    """
+    List available project templates.
+    """
+    manager = get_session_manager()
+    templates = manager.list_templates()
+    return {"templates": templates}
+
+
+@router.post("/create-from-template")
+async def create_session_from_template(
+    name: str = "Untitled Session",
+    template: str = "empty",
+) -> dict:
+    """
+    Create a new session from a template.
+    """
+    manager = get_session_manager()
+    if template not in [t["name"] for t in manager.list_templates()]:
+        raise HTTPException(status_code=400, detail=f"Unknown template: {template}")
+    session = manager.create_session(name=name, template_name=template)
+    return {
+        "id": session.id,
+        "name": session.name,
+        "created_at": session.created_at,
+        "bpm": session.bpm,
+        "key": session.key,
+        "track_count": len(session.tracks),
+    }
 
 
 @router.post("/create")
@@ -26,6 +68,7 @@ async def create_session(
         "created_at": session.created_at,
         "bpm": session.bpm,
         "key": session.key,
+        "track_count": len(session.tracks),
     }
 
 
@@ -45,6 +88,9 @@ async def list_sessions(search: str | None = None) -> dict:
                 "updated_at": s.updated_at,
                 "bpm": s.bpm,
                 "key": s.key,
+                "track_count": len(s.tracks),
+                "tags": s.tags,
+                "description": s.description,
             }
             for s in sessions
         ],
@@ -60,7 +106,7 @@ async def get_session(session_id: str) -> dict:
     session = manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return {
         "id": session.id,
         "name": session.name,
@@ -68,6 +114,27 @@ async def get_session(session_id: str) -> dict:
         "updated_at": session.updated_at,
         "bpm": session.bpm,
         "key": session.key,
+        "description": session.description,
+        "tags": session.tags,
+        "tracks": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "track_type": t.track_type,
+                "volume": t.volume,
+                "pan": t.pan,
+                "muted": t.muted,
+                "solo": t.solo,
+                "armed": t.armed,
+                "automation_armed": t.automation_armed,
+                "group_id": t.group_id,
+                "group_expanded": t.group_expanded,
+                "color": t.color,
+                "height": t.height,
+                "clip_count": len(t.clips),
+            }
+            for t in session.tracks
+        ],
         "vocal_rack": {
             "enabled": session.vocal_rack.enabled,
             "hpf": session.vocal_rack.hpf,
@@ -111,6 +178,10 @@ async def get_session(session_id: str) -> dict:
         "audio_clips": session.audio_clips,
         "prompt": session.prompt,
         "generation_settings": session.generation_settings,
+        "arrangement_markers": [
+            {"id": m.id, "name": m.name, "bar": m.bar, "color": m.color}
+            for m in session.arrangement_markers
+        ],
     }
 
 
@@ -122,6 +193,8 @@ async def update_session(
     key: str | None = None,
     prompt: str | None = None,
     generation_settings: dict | None = None,
+    tags: list[str] | None = None,
+    description: str | None = None,
 ) -> dict:
     """
     Update session metadata.
@@ -138,12 +211,79 @@ async def update_session(
         updates["prompt"] = prompt
     if generation_settings is not None:
         updates["generation_settings"] = generation_settings
-    
+    if tags is not None:
+        updates["tags"] = tags
+    if description is not None:
+        updates["description"] = description
+
     session = manager.update_session(session_id, updates)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return {"id": session.id, "updated_at": session.updated_at}
+
+
+@router.post("/{session_id}/save")
+async def save_session(session_id: str) -> dict:
+    """
+    Explicitly save session to .calliope project file.
+    """
+    manager = get_session_manager()
+    session = manager.save(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "id": session.id,
+        "name": session.name,
+        "updated_at": session.updated_at,
+        "saved": True,
+    }
+
+
+@router.post("/{session_id}/load")
+async def load_session(session_id: str) -> dict:
+    """
+    Load session from .calliope project file.
+    """
+    manager = get_session_manager()
+    session = manager.load(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "id": session.id,
+        "name": session.name,
+        "bpm": session.bpm,
+        "key": session.key,
+        "track_count": len(session.tracks),
+    }
+
+
+@router.post("/{session_id}/freeze-track")
+async def freeze_track(session_id: str, track_id: str) -> dict:
+    """
+    Freeze/bounce a track to audio.
+    """
+    manager = get_session_manager()
+    session = manager.freeze_track(session_id, track_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session or track not found")
+    return {
+        "id": session.id,
+        "track_id": track_id,
+        "frozen": True,
+    }
+
+
+@router.get("/{session_id}/export-stems")
+async def export_stems(session_id: str) -> dict:
+    """
+    Export all tracks as stems metadata.
+    """
+    manager = get_session_manager()
+    data = manager.export_stems(session_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return data
 
 
 @router.put("/{session_id}/vocal-rack")
@@ -155,7 +295,7 @@ async def update_session_vocal_rack(session_id: str, vocal_rack: dict) -> dict:
     session = manager.update_vocal_rack(session_id, vocal_rack)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return {"id": session.id, "updated_at": session.updated_at}
 
 
@@ -168,7 +308,7 @@ async def update_session_plugin_chain(session_id: str, chain: list[dict]) -> dic
     session = manager.update_plugin_chain(session_id, chain)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return {"id": session.id, "updated_at": session.updated_at}
 
 
@@ -181,7 +321,7 @@ async def duplicate_session(session_id: str, new_name: str | None = None) -> dic
     session = manager.duplicate_session(session_id, new_name)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return {"id": session.id, "name": session.name, "created_at": session.created_at}
 
 
@@ -193,7 +333,7 @@ async def delete_session(session_id: str) -> dict:
     manager = get_session_manager()
     if not manager.delete_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return {"status": "deleted", "session_id": session_id}
 
 
@@ -206,7 +346,7 @@ async def export_session(session_id: str) -> dict:
     data = manager.export_session(session_id)
     if not data:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return data
 
 
