@@ -10,7 +10,7 @@ from calliope.config import get_settings
 from calliope.db import init_db
 from calliope.integrations.synapse_stub import log_synapse_style_banner
 from calliope.middleware.request_id import RequestIdMiddleware
-from calliope.routes import aamati, arrangement, generate, health, jobs, music, ollama as ollama_routes, science, voice, recordings, plugins, websocket, presets, clips, vocal_effects, visualization, sessions, stems, midi, batch, export, ai_mix, synth, monitoring, loops, automation, modulation, routing
+from calliope.routes import aamati, ai_generation, ai_generation_models, arrangement, eq as eq_routes, formats, generate, health, jobs, loop_library, midi_learn, music, ollama as ollama_routes, pitch as pitch_routes, science, session_advanced, voice, recordings, plugins, websocket, presets, clips, vocal_effects, visualization, sessions, stems, midi, batch, export, ai_mix, synth, monitoring, loops, automation, modulation, routing
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,14 @@ def create_app() -> FastAPI:
     app.include_router(automation.router)
     app.include_router(modulation.router)
     app.include_router(routing.router)
+    app.include_router(ai_generation.router)
+    app.include_router(ai_generation_models.router)
+    app.include_router(session_advanced.router)
+    app.include_router(midi_learn.router)
+    app.include_router(loop_library.router)
+    app.include_router(formats.router)
+    app.include_router(eq_routes.router)
+    app.include_router(pitch_routes.router)
     app.include_router(websocket.router)
     return app
 

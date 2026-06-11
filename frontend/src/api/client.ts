@@ -492,6 +492,12 @@ export async function updateStudioSession(
   if (!r.ok) throw new Error(await r.text());
 }
 
+export async function deleteStudioSession(sessionId: string): Promise<{ status: string; session_id: string }> {
+  const r = await fetch(`${base}/v1/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
 export async function visualizeRecording(
   recordingId: string,
   sessionId?: string,
@@ -1181,6 +1187,267 @@ export async function createVCAGroup(sessionId: string, name: string, volume = 1
 
 export async function assignTrackToVCA(vcaId: string, trackId: string, sessionId = "default"): Promise<{ status: string; track_id: string; vca_id: string }> {
   const r = await fetch(`${base}/v1/routing/vca/${vcaId}/assign/${trackId}?session_id=${sessionId}`, { method: "POST" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── AI Generation ──────────────────────────────────────────────
+
+export async function aiGenerateMelody(body: {
+  prompt: string; bpm?: number; key?: string; scale?: string; genre?: string; duration_bars?: number;
+}): Promise<{ samples: number[]; sample_rate: number; duration_sec: number }> {
+  const r = await fetch(`${base}/v1/ai-generate/melody`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function aiGenerateChords(body: {
+  prompt: string; bpm?: number; key?: string; genre?: string; length?: number; complexity?: string;
+}): Promise<{ chords: string[]; progression: string[] }> {
+  const r = await fetch(`${base}/v1/ai-generate/chords`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function aiGenerateDrums(body: {
+  prompt: string; bpm?: number; pattern_type?: string; length?: number;
+}): Promise<{ samples: number[]; sample_rate: number; pattern: string }> {
+  const r = await fetch(`${base}/v1/ai-generate/drums`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function aiGenerateFull(body: {
+  prompt: string; bpm?: number; key?: string; scale?: string; genre?: string; duration_bars?: number;
+}): Promise<{ samples: number[]; sample_rate: number; duration_sec: number; stem_files?: Record<string, string> }> {
+  const r = await fetch(`${base}/v1/ai-generate/full`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function aiGenerateStems(body: {
+  prompt: string; bpm?: number; key?: string; stem_types?: string[];
+}): Promise<{ stems: Record<string, number[]>; sample_rate: number }> {
+  const r = await fetch(`${base}/v1/ai-generate/stems`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function aiTransferStyle(body: {
+  content_base64?: string; style_base64?: string; strength?: number;
+}): Promise<{ samples: number[]; sample_rate: number }> {
+  const r = await fetch(`${base}/v1/ai-generate/transfer-style`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── Loop Library ───────────────────────────────────────────────
+
+export interface LoopLibraryEntry {
+  id: string; name: string; bpm: number; key: string; category: string; tags: string[];
+  duration: number; path: string; bars: number;
+}
+
+export async function getLoopLibraryCategories(): Promise<{ categories: string[] }> {
+  const r = await fetch(`${base}/v1/loops/library/categories`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function searchLoopLibrary(params: {
+  query?: string; bpm_min?: number; bpm_max?: number; key?: string; category?: string; tags?: string[];
+}): Promise<{ loops: LoopLibraryEntry[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (params.query) qs.append("query", params.query);
+  if (params.bpm_min) qs.append("bpm_min", String(params.bpm_min));
+  if (params.bpm_max) qs.append("bpm_max", String(params.bpm_max));
+  if (params.key) qs.append("key", params.key);
+  if (params.category) qs.append("category", params.category);
+  if (params.tags) qs.append("tags", params.tags.join(","));
+  const r = await fetch(`${base}/v1/loops/library/search?${qs}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getLoopLibraryEntry(loopId: string): Promise<LoopLibraryEntry> {
+  const r = await fetch(`${base}/v1/loops/library/${loopId}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getLoopAudioUrl(loopId: string): Promise<string> {
+  const r = await fetch(`${base}/v1/loops/library/${loopId}/audio`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.url;
+}
+
+export async function getSimilarLoops(loopId: string): Promise<{ loops: LoopLibraryEntry[] }> {
+  const r = await fetch(`${base}/v1/loops/library/similar/${loopId}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function scanLoopDirectory(): Promise<{ scanned: number; imported: number; loops: LoopLibraryEntry[] }> {
+  const r = await fetch(`${base}/v1/loops/library/scan`, { method: "POST" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── Audio Formats ──────────────────────────────────────────────
+
+export interface FormatInfo {
+  format: string; extension: string; mime_type: string; lossless: boolean;
+  default_sample_rates: number[]; default_bit_depths?: number[]; description: string;
+}
+
+export async function convertAudioFormat(body: {
+  file: string; target_format: string; sample_rate?: number; bit_depth?: number;
+}): Promise<{ output_file: string; format: string; sample_rate: number; size_bytes: number }> {
+  const r = await fetch(`${base}/v1/formats/convert`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getSupportedFormats(): Promise<{ formats: FormatInfo[] }> {
+  const r = await fetch(`${base}/v1/formats/supported`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function analyzeAudioFile(body: { file: string }): Promise<{
+  format: string; duration_sec: number; sample_rate: number; channels: number;
+  bit_depth?: number; bitrate?: number; size_bytes: number;
+}> {
+  const r = await fetch(`${base}/v1/formats/analyze`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── EQ Processing ──────────────────────────────────────────────
+
+export interface EQBand {
+  frequency: number; gain: number; q: number; type: "low_shelf" | "high_shelf" | "peaking" | "high_pass" | "low_pass";
+}
+
+export async function processEQ(body: {
+  samples: number[]; sample_rate: number; bands: EQBand[];
+}): Promise<{ samples: number[]; sample_rate: number; applied_bands: number }> {
+  const r = await fetch(`${base}/v1/eq/process`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getEQPresets(): Promise<{ presets: Array<{ name: string; bands: EQBand[] }> }> {
+  const r = await fetch(`${base}/v1/eq/presets`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function analyzeFrequencyContent(body: {
+  samples: number[]; sample_rate: number;
+}): Promise<{ low_ratio: number; mid_ratio: number; high_ratio: number; bands: Array<{ freq: number; magnitude: number }> }> {
+  const r = await fetch(`${base}/v1/eq/analyze`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── Pitch Processing ───────────────────────────────────────────
+
+export async function pitchShift(body: {
+  samples: number[]; sample_rate: number; semitones: number; formant_correct?: boolean;
+}): Promise<{ samples: number[]; sample_rate: number }> {
+  const r = await fetch(`${base}/v1/pitch/shift`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function detectPitch(body: {
+  samples: number[]; sample_rate: number;
+}): Promise<{ f0: number[]; confidence: number[]; notes: string[] }> {
+  const r = await fetch(`${base}/v1/pitch/detect`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function correctPitch(body: {
+  samples: number[]; sample_rate: number; scale?: string; root_midi?: number; strength?: number;
+}): Promise<{ samples: number[]; sample_rate: number; correction_amount: number[] }> {
+  const r = await fetch(`${base}/v1/pitch/correct`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── MIDI Learn ─────────────────────────────────────────────────
+
+export interface MidiMapping {
+  id: string;
+  controller_name: string;
+  parameter_path: string;
+  midi_channel: number;
+  cc_number: number;
+  min_range: number;
+  max_range: number;
+  curve_type: string;
+}
+
+export async function listMidiMappings(): Promise<{ mappings: MidiMapping[]; total: number }> {
+  const r = await fetch(`${base}/v1/midi-learn/mappings`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function createMidiMapping(body: {
+  controller_name: string;
+  parameter_path: string;
+  midi_channel?: number;
+  cc_number?: number;
+  min_range?: number;
+  max_range?: number;
+  curve_type?: string;
+}): Promise<MidiMapping> {
+  const r = await fetch(`${base}/v1/midi-learn/map`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function deleteMidiMapping(mappingId: string): Promise<{ status: string }> {
+  const r = await fetch(`${base}/v1/midi-learn/map/${encodeURIComponent(mappingId)}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function setMidiLearnMode(enabled: boolean): Promise<{ learn_mode: boolean }> {
+  const r = await fetch(`${base}/v1/midi-learn/learn-mode?enabled=${enabled}`, { method: "POST" });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }

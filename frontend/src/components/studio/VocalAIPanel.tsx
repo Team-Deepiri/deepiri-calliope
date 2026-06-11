@@ -1,6 +1,9 @@
 import { useState, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { Mic2, Sparkles, Send, Square, RotateCcw, Play, BarChart3 } from "lucide-react";
+import { ParametricEQ } from "./ParametricEQ";
+import { ChannelStrip } from "./ChannelStrip";
+import type { MixerChannel } from "../../types/audio";
 
 type ArrangementStyle = "verse-chorus" | "verse-chorus-bridge" | "through-composed" | "strophic" | "freeform";
 type VocalStyle = "lead" | "harmonies" | "ad-libs" | "choir";
@@ -47,6 +50,22 @@ export function VocalAIPanel() {
   const [lyrics, setLyrics] = useState("Floating through the neon sky, AI singing high");
   const [voice, setVoice] = useState("soprano");
   const [tuning, setTuning] = useState(0.8);
+  const [vocalChannel, setVocalChannel] = useState<MixerChannel>({
+    id: "vocal-ai",
+    name: "Vocals (AI)",
+    type: "audio",
+    volume: -4,
+    pan: 0,
+    muted: false,
+    solo: false,
+    color: "#10b981",
+    sends: [{ sendId: "send1", level: 0.2 }],
+    pluginCount: 3,
+    vuLevel: 0.65,
+    eqActive: true,
+    compActive: true,
+    gainReduction: 2.4,
+  });
   const [generating, setGenerating] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [progress, setProgress] = useState<GenerationProgress>({ stage: "", percent: 0 });
@@ -373,6 +392,19 @@ export function VocalAIPanel() {
           <p className="text-red-400 text-sm font-bold">{error}</p>
         </div>
       )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ParametricEQ onPresetChange={(preset) => console.log("Vocal EQ preset:", preset)} />
+        <div className="overflow-x-auto">
+          <ChannelStrip
+            channel={vocalChannel}
+            onUpdate={(updates) => setVocalChannel((prev) => ({ ...prev, ...updates }))}
+            busses={[{ id: "bus1", name: "Vocal Bus" }]}
+            vcaGroups={[]}
+            auxSends={[{ id: "send1", name: "Reverb Send" }]}
+          />
+        </div>
+      </div>
 
       <div className="bg-gray-900/30 p-4 rounded-2xl border border-gray-800/50 flex items-center justify-between">
         <div className="flex items-center gap-2">

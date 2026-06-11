@@ -1,0 +1,643 @@
+/* ─── Rotary Knob Hardware Aesthetics ─── */
+.rotary-knob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  user-select: none;
+  position: relative;
+}
+
+.rotary-knob__dial-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rotary-knob__dial {
+  border-radius: 50%;
+  position: relative;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.12), transparent 40%),
+    radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.5), transparent 55%),
+    conic-gradient(
+      from var(--knob-rot, 0deg),
+      #2a2a3a 0deg,
+      #3d3d55 45deg,
+      #4a4a66 90deg,
+      #3d3d55 135deg,
+      #2a2a3a 180deg,
+      #3d3d55 225deg,
+      #4a4a66 270deg,
+      #3d3d55 315deg,
+      #2a2a3a 360deg
+    );
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.08),
+    inset 0 -3px 8px rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.5),
+    calc(cos(var(--knob-rot, 0deg)) * 3px) calc(sin(var(--knob-rot, 0deg)) * 3px) 8px rgba(0, 0, 0, 0.3);
+  cursor: ns-resize;
+  outline: none;
+  transition: box-shadow 0.1s;
+}
+
+.rotary-knob__dial:focus-visible {
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.08),
+    inset 0 -3px 8px rgba(0, 0, 0, 0.5),
+    0 0 0 3px rgba(99, 102, 241, 0.35),
+    calc(cos(var(--knob-rot, 0deg)) * 3px) calc(sin(var(--knob-rot, 0deg)) * 3px) 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Size variants */
+.rotary-knob--sm .rotary-knob__dial {
+  width: 42px;
+  height: 42px;
+}
+.rotary-knob--md .rotary-knob__dial {
+  width: 58px;
+  height: 58px;
+}
+.rotary-knob--lg .rotary-knob__dial {
+  width: 74px;
+  height: 74px;
+}
+
+.rotary-knob--sm .rotary-knob__cap {
+  inset: 8px;
+}
+.rotary-knob--md .rotary-knob__cap {
+  inset: 10px;
+}
+.rotary-knob--lg .rotary-knob__cap {
+  inset: 14px;
+}
+
+.rotary-knob--sm .rotary-knob__pointer {
+  top: 5px;
+  width: 2px;
+  height: 11px;
+  margin-left: -1px;
+}
+.rotary-knob--md .rotary-knob__pointer {
+  top: 7px;
+  width: 3px;
+  height: 15px;
+  margin-left: -1.5px;
+}
+.rotary-knob--lg .rotary-knob__pointer {
+  top: 9px;
+  width: 4px;
+  height: 20px;
+  margin-left: -2px;
+}
+
+.rotary-knob--sm .rotary-knob__screw {
+  width: 4px;
+  height: 4px;
+}
+.rotary-knob--md .rotary-knob__screw {
+  width: 5px;
+  height: 5px;
+}
+.rotary-knob--lg .rotary-knob__screw {
+  width: 6px;
+  height: 6px;
+}
+
+.rotary-knob__cap {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, rgba(255, 255, 255, 0.07), transparent 50%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.rotary-knob__pointer {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--knob-accent, #818cf8);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--knob-accent, #818cf8) 70%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.rotary-knob__screw {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #666, #222);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* LED Ring */
+.rotary-knob__led-ring {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+  transition: background 0.15s;
+}
+.rotary-knob--sm .rotary-knob__led-ring {
+  inset: -3px;
+  border: 2px solid;
+}
+.rotary-knob--md .rotary-knob__led-ring {
+  inset: -4px;
+  border: 2.5px solid;
+}
+.rotary-knob--lg .rotary-knob__led-ring {
+  inset: -5px;
+  border: 3px solid;
+}
+
+.rotary-knob__led-ring--low {
+  border-color: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4), inset 0 0 6px rgba(34, 197, 94, 0.1);
+}
+.rotary-knob__led-ring--mid {
+  border-color: #eab308;
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.4), inset 0 0 6px rgba(234, 179, 8, 0.1);
+}
+.rotary-knob__led-ring--high {
+  border-color: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4), inset 0 0 6px rgba(239, 68, 68, 0.1);
+}
+
+/* Tick marks */
+.rotary-knob__ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.rotary-knob__tick {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 4px;
+  margin-left: -0.5px;
+  background: rgba(255, 255, 255, 0.15);
+  transform-origin: bottom center;
+  border-radius: 1px;
+}
+.rotary-knob--sm .rotary-knob__tick {
+  height: 3px;
+}
+.rotary-knob--lg .rotary-knob__tick {
+  height: 5px;
+}
+.rotary-knob__tick--major {
+  background: rgba(255, 255, 255, 0.3);
+  width: 1.5px;
+  margin-left: -0.75px;
+  height: 6px;
+}
+.rotary-knob--sm .rotary-knob__tick--major {
+  height: 4px;
+}
+.rotary-knob--lg .rotary-knob__tick--major {
+  height: 7px;
+}
+
+/* Tooltip */
+.rotary-knob__tooltip {
+  position: absolute;
+  top: -32px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: #e2e8f0;
+  font-size: 0.7rem;
+  font-family: ui-monospace, monospace;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.rotary-knob__dial-wrapper:hover .rotary-knob__tooltip {
+  opacity: 1;
+}
+
+.rotary-knob__label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted, #94a3b8);
+  text-align: center;
+  max-width: 76px;
+  line-height: 1.25;
+}
+
+.rotary-knob__value {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: #cbd5e1;
+}
+
+/* ─── Fader Hardware Aesthetics ─── */
+.fader-knob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  user-select: none;
+  width: 100%;
+}
+
+.fader-knob__label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted, #94a3b8);
+  text-align: center;
+  max-width: 76px;
+  line-height: 1.25;
+}
+
+.fader-knob__value {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: #cbd5e1;
+}
+
+.fader-knob__body {
+  position: relative;
+  width: 100%;
+  max-width: 48px;
+  flex: 1;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.fader-knob__scale {
+  position: absolute;
+  right: 100%;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-right: 4px;
+  pointer-events: none;
+}
+.fader-knob__scale-label {
+  font-size: 0.55rem;
+  font-family: ui-monospace, monospace;
+  color: rgba(255, 255, 255, 0.25);
+  line-height: 1;
+}
+
+.fader-knob__track {
+  position: relative;
+  width: 8px;
+  flex: 1;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 3px rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+
+.fader-knob__track-led {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
+  transition: height 0.05s linear;
+  min-height: 2px;
+}
+.fader-knob__track-led--warm {
+  background: linear-gradient(180deg, #eab308 0%, #ca8a04 100%);
+}
+.fader-knob__track-led--hot {
+  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+}
+
+.fader-knob__track-tick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}
+.fader-knob__track-tick--major {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.fader-knob__cap {
+  position: absolute;
+  left: 50%;
+  width: 28px;
+  height: 16px;
+  border-radius: 3px;
+  transform: translate(-50%, 50%);
+  cursor: ns-resize;
+  z-index: 2;
+  background: linear-gradient(180deg, #3d3d55 0%, #2a2a3a 40%, #1a1a2e 100%);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.fader-knob__cap::before,
+.fader-knob__cap::after {
+  content: "";
+  display: block;
+  width: 2px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 1px;
+}
+.fader-knob__cap-grip {
+  width: 8px;
+  height: 10px;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.04) 0px,
+    rgba(255, 255, 255, 0.04) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  border-radius: 1px;
+}
+
+.fader-knob__cap::after {
+  content: "";
+  display: block;
+  width: 2px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 1px;
+}
+
+/* ─── VU Meter ─── */
+.vu-meter-led {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  width: 100%;
+  flex: 1;
+}
+.vu-meter-led__segment {
+  width: 100%;
+  border-radius: 1px;
+  transition: background 0.05s, box-shadow 0.05s;
+  min-height: 3px;
+}
+.vu-meter-led__segment--off {
+  background: rgba(255, 255, 255, 0.04);
+}
+.vu-meter-led__segment--green {
+  background: #22c55e;
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.3);
+}
+.vu-meter-led__segment--yellow {
+  background: #eab308;
+  box-shadow: 0 0 4px rgba(234, 179, 8, 0.3);
+}
+.vu-meter-led__segment--red {
+  background: #ef4444;
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.3);
+}
+
+/* ─── Channel Strip ─── */
+.channel-strip {
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  overflow: hidden;
+}
+
+.channel-strip--active {
+  border-color: rgba(99, 102, 241, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    0 0 20px rgba(99, 102, 241, 0.08);
+}
+
+.channel-strip__section {
+  padding: 0.5rem 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.channel-strip__section:last-child {
+  border-bottom: none;
+}
+
+.channel-strip__section-title {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(148, 163, 184, 0.5);
+  margin-bottom: 0.35rem;
+  text-align: center;
+}
+
+/* ─── EQ Panel ─── */
+.eq-panel {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.eq-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.eq-panel__title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.eq-panel__bypass {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.eq-panel__bypass:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+.eq-panel__bypass--active {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #86efac;
+}
+.eq-panel__bypass--active:hover {
+  background: rgba(34, 197, 94, 0.25);
+}
+
+.eq-panel__presets {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.eq-panel__preset-select {
+  font-size: 0.65rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #cbd5e1;
+  padding: 0.2rem 0.4rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.eq-panel__bands {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.25rem;
+  padding: 0.5rem;
+}
+
+.eq-panel__band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.35rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+.eq-panel__band:hover {
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+.eq-panel__band--bypassed {
+  opacity: 0.4;
+}
+
+.eq-panel__band-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.1rem;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.eq-panel__band-toggle--on {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+}
+.eq-panel__band-toggle--off {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.eq-panel__band-type {
+  font-size: 0.5rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(148, 163, 184, 0.6);
+  text-align: center;
+}
+
+/* ─── Compressor Panel ─── */
+.comp-panel {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+
+.comp-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.comp-panel__title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.comp-panel__knobs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+/* ─── LED colors ─── */
+.led-green { color: #22c55e; }
+.led-yellow { color: #eab308; }
+.led-red { color: #ef4444; }
+.led-blue { color: #818cf8; }
+
+/* ─── Mixer strip integration ─── */
+.mixer-strip {
+  position: relative;
+}
+
+/* ─── Custom scrollbar ─── */
+.custom-scrollbar::-webkit-scrollbar {
+  height: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}

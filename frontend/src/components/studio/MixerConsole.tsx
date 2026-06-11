@@ -1,9 +1,10 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sliders, Waves, GitBranch, Shuffle, LayoutGrid,
 } from "lucide-react";
 import type { MixerChannel } from "../../types/audio";
+import { ParametricEQ } from "./ParametricEQ";
 
 interface MixerConsoleProps {
   channels: MixerChannel[];
@@ -37,15 +38,20 @@ function ChannelStrip({
   allChannels: MixerChannel[];
 }) {
   const [expanded, setExpanded] = useState<Record<SectionKey, boolean>>({ sends: false, routing: false, eq: false });
+  const [eqModalOpen, setEqModalOpen] = useState(false);
   const faderRef = useRef<HTMLDivElement>(null);
   const faderStart = useRef({ y: 0, val: 0 });
 
   const isMaster = channel.type === "master";
 
-  const eqBands = [0.2, 0.4, 0.6, 0.8].map((freq) => ({
-    freq,
-    gain: Math.sin(freq * Math.PI * 2 + channel.volume * 0.1) * 0.5 + 0.5,
-  }));
+  const eqBands = useMemo(() => {
+    const freqs = [30, 100, 300, 1000, 3000, 8000, 16000];
+    return freqs.map((freq) => {
+      const logFreq = Math.log10(freq / 1000);
+      const gain = Math.sin(logFreq * Math.PI * 2 + channel.volume * 0.05) * 0.3 + 0.5;
+      return { freq, gain: Math.max(0, Math.min(1, gain)) };
+    });
+  }, [channel.volume]);
 
   const toggleSection = (key: SectionKey) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -274,10 +280,11 @@ function ChannelStrip({
           </button>
           {channel.eqActive && (
             <button
-              onClick={() => toggleSection("eq")}
-              className={`p-0.5 rounded ${expanded.eq ? "bg-blue-500/20 text-blue-400" : "text-gray-600"}`}
+              onClick={() => setEqModalOpen(true)}
+              className={`p-0.5 rounded text-gray-600 hover:text-blue-400 hover:bg-blue-500/20`}
+              title="Open EQ"
             >
-              <Waves size={8} />
+              <Equalizer size={8} />
             </button>
           )}
         </div>
@@ -340,29 +347,43 @@ function ChannelStrip({
           )}
         </AnimatePresence>
 
-        {/* EQ visualizer (collapsible) */}
+        {/* EQ Modal */}
         <AnimatePresence>
-          {expanded.eq && channel.eqActive && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="w-full overflow-hidden"
-            >
-              <div className="flex items-end gap-[1px] h-8 w-full bg-gray-800/50 rounded p-0.5">
-                {Array.from({ length: 16 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 rounded-t-sm"
-                    style={{
-                      height: `${(Math.sin(i * 0.8 + channel.volume * 0.05) * 0.5 + 0.5) * 100}%`,
-                      backgroundColor: channel.color,
-                      opacity: 0.4 + Math.sin(i * 0.8) * 0.3 + 0.5,
-                    }}
-                  />
-                ))}
-              </div>
-            </motion.div>
+          {eqModalOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/50 z-50"
+                onClick={() => setEqModalOpen(false)}
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="fixed inset-4 z-50 flex items-center justify-center pointer-events-none"
+              >
+                <div
+                  className="pointer-events-auto bg-gray-950 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden w-full max-w-lg"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+                    <div className="flex items-center gap-2">
+                      <Waves size={14} className="text-blue-400" />
+                      <span className="text-sm font-bold text-white">EQ - {channel.name}</span>
+                    </div>
+                    <button
+                      onClick={() => setEqModalOpen(false)}
+                      className="p-1 rounded text-gray-500 hover:text-white transition-colors"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                  <ParametricEQ onPresetChange={(preset) => console.log("EQ preset:", preset)} />
+                </div>
+              </motion.div>
+            </>
           )}
         </AnimatePresence>
 
