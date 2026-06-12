@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Sliders, Waves, GitBranch, Shuffle, LayoutGrid,
+  Sliders, Waves, GitBranch, Shuffle, LayoutGrid, Equalizer,
 } from "lucide-react";
 import type { MixerChannel } from "../../types/audio";
 import { ParametricEQ } from "./ParametricEQ";
@@ -252,7 +252,7 @@ function ChannelStrip({
                           : channel.sends;
                         onUpdate({ sends: newSends });
                       }}
-                      className="flex-1 h-1 appearance-none bg-gray-700 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-400"
+                      className="flex-1 h-1 appearance-none bg-gray-700 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-2 [&::-moz-range-thumb]:h-2 [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
                     />
                     <span className="text-[7px] font-mono text-gray-500 w-4 text-right">{Math.round(sendLevel * 100)}</span>
                   </div>
