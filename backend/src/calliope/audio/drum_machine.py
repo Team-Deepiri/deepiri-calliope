@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Literal
+
+from calliope.audio.io import read_audio_file
 
 
 @dataclass
@@ -17,20 +21,24 @@ class DrumSlotConfig:
     pan: float = 0.5
     pitch: float = 1.0
     decay: float = 0.5
+    sample_start: float = 0.0
+    sample_end: Optional[float] = None
 
 
 @dataclass
 class DrumPattern:
     name: str
     steps: int = 16
-    grid: Dict[int, List[int]] = field(default_factory=dict)  # slot_index: [active_steps]
+    grid: Dict[int, List[int]] = field(default_factory=dict)
 
 
 class DrumMachine:
     """Multi-slot drum engine with synthesis and sequencing."""
 
-    def __init__(self, sr: int = 48000):
+    def __init__(self, sr: int = 48000, samples_dir: str | Path | None = None):
         self.sr = sr
+        self.samples_dir = Path(samples_dir) if samples_dir else Path("/data/audio/samples")
+        self._sample_cache: Dict[str, np.ndarray] = {}
         self.slots: List[DrumSlotConfig] = [
             DrumSlotConfig("Kick", "synth", "kick"),
             DrumSlotConfig("Snare", "synth", "snare"),
@@ -74,8 +82,8 @@ class DrumMachine:
 
     def generate_step(self, slot_index: int) -> np.ndarray:
         slot = self.slots[slot_index]
-        duration = 0.5 # Default max duration for a drum hit
-        
+        duration = 0.5
+
         if slot.source_type == "synth":
             if slot.synth_type == "kick":
                 samples = self._generate_kick(duration, slot.decay, slot.pitch)
@@ -86,10 +94,40 @@ class DrumMachine:
             else:
                 samples = np.random.randn(int(duration * self.sr)) * 0.1
         else:
-            # TODO: Load sample from path
-            samples = np.zeros(int(duration * self.sr))
-            
+            if slot.sample_path:
+                samples = self._load_sample(slot.sample_path, slot)
+            else:
+                samples = np.zeros(int(duration * self.sr))
+
         return samples * slot.volume
+
+    def _load_sample(self, path: str, slot: DrumSlotConfig) -> np.ndarray:
+        if path in self._sample_cache:
+            raw = self._sample_cache[path]
+        else:
+            resolved = Path(path)
+            if not resolved.is_absolute():
+                resolved = self.samples_dir / resolved
+            raw, _ = read_audio_file(resolved, sr=self.sr, mono=True)
+            self._sample_cache[path] = raw
+
+        start_sample = int(slot.sample_start * self.sr)
+        end_sample = int(slot.sample_end * self.sr) if slot.sample_end else len(raw)
+        raw = raw[start_sample:end_sample]
+
+        if slot.pitch != 1.0:
+            from scipy.signal import resample
+            n = int(len(raw) / slot.pitch)
+            raw = resample(raw, n)
+
+        n = int(0.5 * self.sr)
+        t = np.arange(min(len(raw), n)) / self.sr
+        env = np.exp(-t * (15 / slot.decay))
+        raw = raw[:n] * env[:len(raw[:n])]
+        if len(raw) < n:
+            raw = np.pad(raw, (0, n - len(raw)))
+
+        return raw
 
     def render_pattern(self, pattern_index: int, bpm: int) -> np.ndarray:
         pattern = self.patterns[pattern_index]

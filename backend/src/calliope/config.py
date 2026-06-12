@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     recordings_path: Path = Path("/data/audio/recordings")
     processed_path: Path = Path("/data/audio/processed")
     exports_path: Path = Path("/data/audio/exports")
+    samples_path: Path = Path("/data/audio/samples")
 
     max_upload_size_mb: int = 100
     supported_audio_formats: list[str] = ["wav", "mp3", "ogg", "flac", "m4a", "aac"]
@@ -45,7 +46,7 @@ class Settings(BaseSettings):
         }.get(name.lower(), False)
 
     def ensure_directories(self) -> None:
-        for path in [self.recordings_path, self.processed_path, self.exports_path]:
+        for path in [self.recordings_path, self.processed_path, self.exports_path, self.samples_path]:
             path.mkdir(parents=True, exist_ok=True)
 
 
