@@ -7,7 +7,7 @@ import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from dataclasses import dataclass, asdict, field
 
 from calliope.config import get_settings
