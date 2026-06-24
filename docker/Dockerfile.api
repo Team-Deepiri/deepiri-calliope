@@ -9,8 +9,7 @@ WORKDIR /app
 
 RUN mkdir -p -m 0700 /root/.ssh && ssh-keyscan github.com >> /root/.ssh/known_hosts
 
-RUN --mount=type=ssh \
-    git clone --depth 1 git@github.com:jrb00013/Aamati.git /opt/Aamati
+RUN git clone --depth 1 https://github.com/jrb00013/Aamati.git /opt/Aamati
 
 COPY backend/pyproject.toml backend/poetry.lock /app/
 COPY backend/src /app/src

@@ -1,0 +1,203 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+  POETRY_VERSION: "2.2.1"
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Lint frontend if configured
+        run: npm run lint --if-present --prefix frontend
+
+      - name: Test frontend if configured
+        run: npm run test --if-present --prefix frontend
+
+      - name: Build frontend
+        run: npm run build --prefix frontend
+
+  ci-ssh-access:
+    name: CI SSH access
+    runs-on: ubuntu-latest
+    env:
+      CI_SSH_PRIVATE_KEY_PRESENT: ${{ secrets.CI_SSH_PRIVATE_KEY != '' }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Verify CI SSH key is configured
+        run: |
+          if [[ "${CI_SSH_PRIVATE_KEY_PRESENT}" != "true" ]]; then
+            echo "::error title=Missing CI_SSH_PRIVATE_KEY::This repository needs a CI SSH key to install Team-Deepiri/deepiri-ollama-utils and build the API image. Ask GitHub org/repo admins or IT to add a read-only CI key as the CI_SSH_PRIVATE_KEY Actions secret."
+            exit 1
+          fi
+          echo "CI_SSH_PRIVATE_KEY is configured."
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    needs: ci-ssh-access
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: backend
+
+    env:
+      DATABASE_URL: sqlite+aiosqlite:///./calliope-test.db
+      AAMATI_ROOT: /tmp/aamati-missing
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
+      DEFAULT_LLM_PROVIDER: ollama
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
+
+      - name: Trust GitHub SSH host key
+        run: ssh-keyscan github.com >> ~/.ssh/known_hosts
+        working-directory: .
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg libsndfile1
+        working-directory: .
+
+      - name: Install Poetry
+        run: python -m pip install "poetry==${POETRY_VERSION}"
+        working-directory: .
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install "setuptools<81" wheel
+          python -m pip install --no-build-isolation crepe==0.0.16
+          poetry install --no-interaction --no-ansi
+
+      - name: Lint backend
+        run: poetry run ruff check src tests
+
+      - name: Test backend
+        run: poetry run pytest
+
+  docker:
+    name: Docker images
+    runs-on: ubuntu-latest
+    needs: ci-ssh-access
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        env:
+          DOCKER_BUILDKIT: "1"
+        run: docker build --ssh default -f docker/Dockerfile.api -t deepiri-calliope-api:ci .
+
+      - name: Build web image
+        run: docker build -f docker/Dockerfile.web -t deepiri-calliope-web:ci .
+
+  compose-smoke:
+    name: Compose smoke
+    runs-on: ubuntu-latest
+    needs: [frontend, backend, docker]
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      DOCKER_BUILDKIT: "1"
+      DATABASE_URL: sqlite+aiosqlite:///./calliope.db
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      DEFAULT_LLM_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
+
+      - name: Build compose stack
+        run: docker compose build --ssh default
+
+      - name: Start compose stack
+        run: docker compose up --detach
+
+      - name: Wait for services
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:8080/health >/dev/null && curl --fail --silent http://localhost:5173/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker compose ps
+          docker compose logs --no-color
+          exit 1
+
+      - name: Check frontend shell
+        run: curl --fail --silent http://localhost:5173/ >/dev/null
+
+      - name: Stop compose stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
