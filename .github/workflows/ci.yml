@@ -50,7 +50,7 @@ jobs:
     name: CI PAT access
     runs-on: ubuntu-latest
     env:
-      ORG_GITHUB_PAT_PRESENT: ${{ secrets.ORG_GITHUB_PAT != '' }}
+      REGISTRY_TOKEN_PRESENT: ${{ secrets.REGISTRY_TOKEN != '' }}
 
     defaults:
       run:
@@ -59,11 +59,11 @@ jobs:
     steps:
       - name: Verify org GitHub PAT is configured
         run: |
-          if [[ "${ORG_GITHUB_PAT_PRESENT}" != "true" ]]; then
-            echo "::error title=Missing ORG_GITHUB_PAT::This repository needs the org-scoped GitHub PAT to install Team-Deepiri/deepiri-ollama-utils. Ask GitHub org/repo admins or IT to make the org Actions secret available to this repository, or update ci.yml to use the actual secret name."
+          if [[ "${REGISTRY_TOKEN_PRESENT}" != "true" ]]; then
+            echo "::error title=Missing REGISTRY_TOKEN::This repository needs the registry token to install Team-Deepiri/deepiri-ollama-utils. Ask GitHub org/repo admins or IT to make the registry token available to this repository, or update ci.yml to use the actual secret name."
             exit 1
           fi
-          echo "ORG_GITHUB_PAT is configured."
+          echo "REGISTRY_TOKEN is configured."
 
   backend:
     name: Backend
@@ -91,15 +91,15 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
-      - name: Configure GitHub PAT for private dependencies
+      - name: Configure registry token for private dependencies
         env:
-          GITHUB_PAT: ${{ secrets.ORG_GITHUB_PAT }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
           umask 077
           cat > ~/.netrc <<EOF
-          machine github.com
-          login x-access-token
-          password ${GITHUB_PAT}
+          machine registry.docker.io
+          login registry-token
+          password ${REGISTRY_TOKEN}
           EOF
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
@@ -146,8 +146,8 @@ jobs:
       - name: Build API image
         env:
           DOCKER_BUILDKIT: "1"
-          GITHUB_PAT: ${{ secrets.ORG_GITHUB_PAT }}
-        run: docker build --secret id=github_pat,env=GITHUB_PAT -f docker/Dockerfile.api -t deepiri-calliope-api:ci .
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: docker build --secret id=registry_token,env=REGISTRY_TOKEN -f docker/Dockerfile.api -t deepiri-calliope-api:ci .
 
       - name: Build web image
         run: docker build -f docker/Dockerfile.web -t deepiri-calliope-web:ci .
@@ -167,7 +167,7 @@ jobs:
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       DEFAULT_LLM_PROVIDER: ollama
       OLLAMA_BASE_URL: http://host.docker.internal:11434
-      GITHUB_PAT: ${{ secrets.ORG_GITHUB_PAT }}
+      REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
 
     steps:
       - name: Checkout repository
