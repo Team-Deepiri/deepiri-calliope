@@ -46,29 +46,29 @@ jobs:
       - name: Build frontend
         run: npm run build --prefix frontend
 
-  ci-ssh-access:
-    name: CI SSH access
+  ci-pat-access:
+    name: CI PAT access
     runs-on: ubuntu-latest
     env:
-      CI_SSH_PRIVATE_KEY_PRESENT: ${{ secrets.CI_SSH_PRIVATE_KEY != '' }}
+      ORG_GITHUB_PAT_PRESENT: ${{ secrets.ORG_GITHUB_PAT != '' }}
 
     defaults:
       run:
         shell: bash
 
     steps:
-      - name: Verify CI SSH key is configured
+      - name: Verify org GitHub PAT is configured
         run: |
-          if [[ "${CI_SSH_PRIVATE_KEY_PRESENT}" != "true" ]]; then
-            echo "::error title=Missing CI_SSH_PRIVATE_KEY::This repository needs a CI SSH key to install Team-Deepiri/deepiri-ollama-utils and build the API image. Ask GitHub org/repo admins or IT to add a read-only CI key as the CI_SSH_PRIVATE_KEY Actions secret."
+          if [[ "${ORG_GITHUB_PAT_PRESENT}" != "true" ]]; then
+            echo "::error title=Missing ORG_GITHUB_PAT::This repository needs the org-scoped GitHub PAT to install Team-Deepiri/deepiri-ollama-utils. Ask GitHub org/repo admins or IT to make the org Actions secret available to this repository, or update ci.yml to use the actual secret name."
             exit 1
           fi
-          echo "CI_SSH_PRIVATE_KEY is configured."
+          echo "ORG_GITHUB_PAT is configured."
 
   backend:
     name: Backend
     runs-on: ubuntu-latest
-    needs: ci-ssh-access
+    needs: ci-pat-access
 
     defaults:
       run:
@@ -91,13 +91,18 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
-      - name: Start SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
-
-      - name: Trust GitHub SSH host key
-        run: ssh-keyscan github.com >> ~/.ssh/known_hosts
+      - name: Configure GitHub PAT for private dependencies
+        env:
+          GITHUB_PAT: ${{ secrets.ORG_GITHUB_PAT }}
+        run: |
+          umask 077
+          cat > ~/.netrc <<EOF
+          machine github.com
+          login x-access-token
+          password ${GITHUB_PAT}
+          EOF
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
         working-directory: .
 
       - name: Install system dependencies
@@ -125,7 +130,7 @@ jobs:
   docker:
     name: Docker images
     runs-on: ubuntu-latest
-    needs: ci-ssh-access
+    needs: ci-pat-access
 
     defaults:
       run:
@@ -135,18 +140,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Start SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
-
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build API image
         env:
           DOCKER_BUILDKIT: "1"
-        run: docker build --ssh default -f docker/Dockerfile.api -t deepiri-calliope-api:ci .
+          GITHUB_PAT: ${{ secrets.ORG_GITHUB_PAT }}
+        run: docker build --secret id=github_pat,env=GITHUB_PAT -f docker/Dockerfile.api -t deepiri-calliope-api:ci .
 
       - name: Build web image
         run: docker build -f docker/Dockerfile.web -t deepiri-calliope-web:ci .
@@ -166,18 +167,14 @@ jobs:
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       DEFAULT_LLM_PROVIDER: ollama
       OLLAMA_BASE_URL: http://host.docker.internal:11434
+      GITHUB_PAT: ${{ secrets.ORG_GITHUB_PAT }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Start SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
-
       - name: Build compose stack
-        run: docker compose build --ssh default
+        run: docker compose build
 
       - name: Start compose stack
         run: docker compose up --detach
