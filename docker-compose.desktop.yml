@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: calliope-postgres
+    environment:
+      POSTGRES_USER: calliope
+      POSTGRES_PASSWORD: calliope
+      POSTGRES_DB: calliope
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calliope -d calliope"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    image: ghcr.io/team-deepiri/calliope-api:${CALLIOPE_API_TAG:-latest}
+    container_name: calliope-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://calliope:calliope@postgres:5432/calliope
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,https://tauri.localhost,http://tauri.localhost
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data/audio:/data/audio
