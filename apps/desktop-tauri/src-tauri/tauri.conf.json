@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Calliope",
+  "version": "0.1.0",
+  "identifier": "com.deepiri.calliope",
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "frontendDist": "../../../frontend/dist"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": [
+      "resources/stack/docker-compose.yml",
+      "resources/stack/.env.desktop.example",
+      "resources/stack/bin/start-stack.sh",
+      "resources/stack/bin/stop-stack.sh",
+      "resources/stack/bin/logs-stack.sh",
+      "resources/stack/bin/start-stack.ps1",
+      "resources/stack/bin/stop-stack.ps1",
+      "resources/stack/bin/logs-stack.ps1"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Calliope",
+        "width": 1280,
+        "height": 820,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}
