@@ -1,7 +1,7 @@
 import type { VocalRackPayload } from "../types/vocalRack";
 import type { RecordingSession, RecordingFile, PluginInfo, AutotuneConfig } from "../types/audio";
 
-const base = "";
+const base = (import.meta.env.VITE_API_BASE ?? "").trim();
 
 export type VoiceProcessResult = {
   channel_left: number[];

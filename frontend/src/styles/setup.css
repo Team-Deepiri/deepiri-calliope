@@ -1,0 +1,52 @@
+.setup-page {
+  min-height: calc(100vh - 64px);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.setup-card {
+  width: min(840px, 100%);
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.setup-status {
+  margin: 16px 0;
+  display: grid;
+  gap: 10px;
+}
+
+.setup-status-row {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.setup-actions button {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.setup-actions button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.setup-error {
+  color: #fecaca;
+}
