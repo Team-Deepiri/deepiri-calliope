@@ -2,21 +2,18 @@
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git openssh-client ca-certificates build-essential \
+    git ca-certificates build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-RUN mkdir -p -m 0700 /root/.ssh && ssh-keyscan github.com >> /root/.ssh/known_hosts
-
-RUN --mount=type=ssh \
-    git clone --depth 1 git@github.com:jrb00013/Aamati.git /opt/Aamati
+# Aamati is public — clone over HTTPS (no SSH deploy key required)
+RUN git clone --depth 1 https://github.com/jrb00013/Aamati.git /opt/Aamati
 
 COPY backend/pyproject.toml backend/poetry.lock /app/
 COPY backend/src /app/src
 
-RUN --mount=type=ssh \
-    pip install --no-cache-dir "setuptools<81" wheel poetry==2.2.1 \
+RUN pip install --no-cache-dir "setuptools<81" wheel poetry==2.2.1 \
     && pip install --no-cache-dir --no-build-isolation crepe==0.0.16 \
     && poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi --only main --no-root
