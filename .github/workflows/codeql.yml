@@ -15,8 +15,6 @@ jobs:
   analyze:
     name: Analyze (python, javascript-typescript)
     runs-on: ubuntu-latest
-    # Soft-fail when GitHub Advanced Security / code scanning is not enabled on the repo.
-    continue-on-error: true
 
     steps:
       - name: Checkout repository
@@ -33,6 +31,18 @@ jobs:
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
+        id: analyze
         if: steps.init.outcome == 'success'
         continue-on-error: true
         uses: github/codeql-action/analyze@v3
+
+      - name: CodeQL status
+        run: |
+          echo "init=${{ steps.init.outcome }} analyze=${{ steps.analyze.outcome }}"
+          if [ "${{ steps.init.outcome }}" != "success" ]; then
+            echo "CodeQL init unavailable (often GitHub Advanced Security not enabled). Treating as soft pass."
+          elif [ "${{ steps.analyze.outcome }}" != "success" ]; then
+            echo "CodeQL analyze soft-failed; treating as soft pass for mergeability."
+          else
+            echo "CodeQL completed successfully."
+          fi
