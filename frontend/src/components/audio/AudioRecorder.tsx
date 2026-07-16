@@ -91,7 +91,7 @@ async function encodeBlobToWav(blob: Blob): Promise<Blob> {
 
 interface AudioRecorderProps {
   variant?: "default" | "daw";
-  onRecordingComplete?: (file: RecordingFile, sessionId: string) => void;
+  onRecordingComplete?: (file: RecordingFile, sessionId: string, durationHintSec?: number) => void;
   onProcessedAudio?: (outputFile: string, metrics: Record<string, number>) => void;
   onRecordingStateChange?: (recording: boolean) => void;
 }
@@ -117,7 +117,9 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   const [isUploading, setIsUploading] = useState(false);
   const [playingFileId, setPlayingFileId] = useState<string | null>(null);
   const isRecordingRef = useRef(false);
+  const recordingTimeRef = useRef(0);
   const audioPlayRef = useRef<HTMLAudioElement | null>(null);
+  const apiBase = (import.meta.env.VITE_API_BASE ?? "").trim();
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -208,6 +210,7 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
       mediaRecorderRef.current.start(100);
       setIsRecording(true);
       setRecordingTime(0);
+      recordingTimeRef.current = 0;
       
       startVisualization();
       startTimer();
@@ -217,7 +220,7 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   };
   
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setIsPaused(false);
@@ -230,7 +233,7 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   };
   
   const pauseRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
       if (isPaused) {
         mediaRecorderRef.current.resume();
         startVisualization();
@@ -245,6 +248,7 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   };
   
   const handleRecordingComplete = async (blob: Blob) => {
+    const durationHint = recordingTimeRef.current;
     try {
       let session = currentSession;
       if (!session) {
@@ -256,20 +260,21 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
       const file = new File([wavBlob], "recording.wav", { type: "audio/wav" });
 
       const result = await uploadRecordingFile(session.id, file, "vocal");
+      const durationSec = result.duration_sec > 0 ? result.duration_sec : durationHint;
 
       const newFile: RecordingFile = {
         id: result.recording_id,
         filename: result.filename,
         original_name: "recording.wav",
         format: "wav",
-        duration_sec: result.duration_sec,
+        duration_sec: durationSec,
         track_type: "vocal",
         uploaded_at: new Date().toISOString(),
       };
 
       setFiles((prev) => [...prev, newFile]);
       setSelectedFile(newFile);
-      onRecordingComplete?.(newFile, session.id);
+      onRecordingComplete?.(newFile, session.id, durationHint);
     } catch (e) {
       console.error("Failed to upload recording:", e);
     }
@@ -277,7 +282,11 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   
   const startTimer = () => {
     timerRef.current = setInterval(() => {
-      setRecordingTime((prev) => prev + 1);
+      setRecordingTime((prev) => {
+        const next = prev + 1;
+        recordingTimeRef.current = next;
+        return next;
+      });
     }, 1000);
   };
   
@@ -545,7 +554,7 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
                     } else {
                       const session = currentSession;
                       if (!session) return;
-                      const url = `/v1/recordings/sessions/${session.id}/files/${file.id}/download`;
+                      const url = `${apiBase}/v1/recordings/sessions/${session.id}/files/${file.id}/download`;
                       if (!audioPlayRef.current) audioPlayRef.current = new Audio();
                       audioPlayRef.current.src = url;
                       audioPlayRef.current.onended = () => setPlayingFileId(null);

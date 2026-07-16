@@ -65,7 +65,6 @@ def build_user_payload(
 
     struct = plan_structure(brief)
     palette_block = "[Harmony palette hints]\n" + palette_lines(brief.genres)
-    aamati_block = AamatiPrior().build_llm_injection(brief)
     analysis_block = (
         f"[Calliope analysis — deterministic]\n"
         f"- Inferred genres: {', '.join(brief.genres)}\n"
@@ -86,6 +85,7 @@ def build_user_payload(
     )
 
     if depth == "deep":
+        aamati_block = AamatiPrior().build_llm_injection(brief)
         tail += (
             "\nAdditionally output a machine-readable block at the END:\n"
             "```calliope-json\n"
@@ -93,10 +93,18 @@ def build_user_payload(
             '{"name":"string","bars":number,"notes":"string"}], "risks": ["string"] }\n'
             "```\n"
         )
+        return (
+            f"{analysis_block}\n{aamati_block}\n{palette_block}\n{structure_block}\n\n"
+            f"{vocal_block}"
+            f"[Producer brief]\n{user_prompt.strip()}\n"
+            f"{RHYTHM_HARMONY_ADDENDUM}{tail}"
+        )
 
+    # Standard depth: lean prompt so local Ollama finishes in a reasonable time.
     return (
-        f"{analysis_block}\n{aamati_block}\n{palette_block}\n{structure_block}\n\n"
+        f"{analysis_block}\n{structure_block}\n\n"
         f"{vocal_block}"
         f"[Producer brief]\n{user_prompt.strip()}\n"
-        f"{RHYTHM_HARMONY_ADDENDUM}{tail}"
+        f"{tail}"
+        "Keep each section to 2–4 short bullets.\n"
     )
