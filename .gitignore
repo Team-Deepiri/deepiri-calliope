@@ -17,3 +17,4 @@ frontend/dist/
 coverage.xml
 .coverage
 htmlcov/
+data/
