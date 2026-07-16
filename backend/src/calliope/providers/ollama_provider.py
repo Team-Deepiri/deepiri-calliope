@@ -13,17 +13,30 @@ _FALLBACK_MODELS = (
     "llama3.1",
 )
 
+_model_cache: dict[str, tuple[float, list[str]]] = {}
+_MODEL_CACHE_TTL = 60.0
+
 
 async def _list_model_names(settings: Settings) -> list[str]:
-    url = f"{settings.ollama_base_url.rstrip('/')}/api/tags"
+    import time
+
+    key = settings.ollama_base_url.rstrip("/")
+    cached = _model_cache.get(key)
+    now = time.monotonic()
+    if cached and now - cached[0] < _MODEL_CACHE_TTL:
+        return cached[1]
+
+    url = f"{key}/api/tags"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=8.0) as client:
             r = await client.get(url)
             r.raise_for_status()
             data = r.json()
-            return [str(m.get("name", "")) for m in (data.get("models") or []) if m.get("name")]
+            names = [str(m.get("name", "")) for m in (data.get("models") or []) if m.get("name")]
+            _model_cache[key] = (now, names)
+            return names
     except Exception:
-        return []
+        return cached[1] if cached else []
 
 
 def _pick_model(requested: str, available: list[str]) -> str:
@@ -31,13 +44,12 @@ def _pick_model(requested: str, available: list[str]) -> str:
         return requested
     if requested in available:
         return requested
-    # Exact tag match without registry prefix
     for name in available:
         if name == requested or name.endswith(f"/{requested}") or name.split(":")[0] == requested.split(":")[0]:
             return name
     for candidate in _FALLBACK_MODELS:
         for name in available:
-            if name == candidate or name.startswith(f"{candidate}") or name.split(":")[0] == candidate.split(":")[0]:
+            if name == candidate or name.startswith(candidate) or name.split(":")[0] == candidate.split(":")[0]:
                 return name
     return available[0]
 
@@ -51,14 +63,20 @@ async def complete_chat(
 ) -> str:
     available = await _list_model_names(settings)
     resolved = _pick_model(model, available)
+    # Keep prompts bounded so local models finish before gateway timeouts.
+    if len(system) > 2500:
+        system = system[:2500] + "\n…"
+    if len(user) > 4500:
+        user = user[:4500] + "\n…"
     combined = f"{system}\n\n{user}"
     payload = {
         "model": resolved,
         "prompt": combined,
         "stream": False,
+        "keep_alive": "10m",
         "options": {
             "num_predict": int(settings.ollama_num_predict),
-            "temperature": 0.7,
+            "temperature": 0.65,
         },
     }
     url = f"{settings.ollama_base_url.rstrip('/')}/api/generate"
@@ -66,7 +84,6 @@ async def complete_chat(
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, json=payload)
         if r.status_code == 404 and available:
-            # Model pull/name mismatch — retry once with best available fallback.
             payload["model"] = _pick_model(_FALLBACK_MODELS[0], available)
             r = await client.post(url, json=payload)
         r.raise_for_status()

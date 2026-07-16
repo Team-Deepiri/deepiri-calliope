@@ -27,7 +27,12 @@ def analyze_and_structure(text: str) -> tuple[BriefAnalysis, ProductionStructure
 def build_system_prompt(depth: Depth) -> str:
     if depth == "deep":
         return MUSIC_ARCHITECT_SYSTEM
-    return MUSIC_SYSTEM_PROMPT
+    # Short system prompt keeps local Ollama latency manageable.
+    return (
+        "You are Calliope, a music production co-pilot. "
+        "Give concrete, concise DAW-ready advice (BPM, harmony, groove, arrangement, mix). "
+        "Use short markdown sections and bullets only."
+    )
 
 
 def format_vocal_rack_block(v: VocalRackIn) -> str:
