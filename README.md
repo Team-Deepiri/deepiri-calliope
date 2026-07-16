@@ -9,12 +9,11 @@ Local-first AI music studio stack for Team Deepiri: FastAPI backend, Vite React 
 
 ```bash
 cp .env.example .env
-export DOCKER_BUILDKIT=1
-docker compose build --ssh default
+docker compose build
 docker compose up
 ```
 
-The API image clones [Aamati](https://github.com/jrb00013/Aamati) over SSH during build; ensure your SSH agent can reach GitHub (`ssh-add -l`).
+The API image clones [Aamati](https://github.com/jrb00013/Aamati) during build.
 
 - API: `http://localhost:8080`
 - Web (dev): `http://localhost:5173`

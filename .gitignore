@@ -17,4 +17,12 @@ frontend/dist/
 coverage.xml
 .coverage
 htmlcov/
+.claude
+# Desktop / Docker local state
+apps/desktop-tauri/src-tauri/target/
+apps/desktop-tauri/node_modules/
+apps/desktop-tauri/src-tauri/icons/android/
+apps/desktop-tauri/src-tauri/icons/ios/
 data/
+*.db
+calliope.db

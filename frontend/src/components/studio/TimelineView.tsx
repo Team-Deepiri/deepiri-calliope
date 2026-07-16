@@ -92,6 +92,14 @@ export function TimelineView({
                     </div>
                   ))}
               </div>
+            ))}
+
+            {/* Playhead */}
+            <div
+              className="absolute top-0 bottom-0 w-px bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)] z-20 pointer-events-none"
+              style={{ left: playhead * barWidth }}
+            >
+              <div className="w-3 h-3 bg-yellow-500 rounded-full -ml-[5px] -mt-[1px]" />
             </div>
           ))}
           <div className="daw-timeline__playhead" style={{ left: playheadLeft }} />
