@@ -9,7 +9,7 @@ from calliope.audio.peak import true_peak_estimate
 from calliope.audio.rms import frame_rms_db, integrated_rms_db
 from calliope.audio.stft import stft_magnitude
 
-from calliope.audio.midi_representations import NoteToken, REMIEncoder, MuMIDIEncoder, OctupleMIDIEncoder, CPEncoder
+from calliope.audio.midi_nxt import NoteToken, encode_note_sequence, decode_token_sequence
 from calliope.audio.music_transformer import MusicTransformerModel, TransformerConfig
 from calliope.audio.music_vae import MusicVAE, VAEConfig
 from calliope.audio.musegan import MuseGAN, MuseGANConfig
@@ -23,7 +23,6 @@ from calliope.audio.parametric_eq import ParametricEQ
 from calliope.audio.spectral_editor import SpectralEditor
 from calliope.audio.audio_formats import AudioFormatConverter, SUPPORTED_FORMATS
 from calliope.audio.loop_library import LoopLibrary
-from calliope.audio.pitch_processor import PitchProcessor
 
 __all__ = [
     "chroma_mean_from_mag",
@@ -36,10 +35,8 @@ __all__ = [
     "frame_rms_db",
     "stft_magnitude",
     "NoteToken",
-    "REMIEncoder",
-    "MuMIDIEncoder",
-    "OctupleMIDIEncoder",
-    "CPEncoder",
+    "encode_note_sequence",
+    "decode_token_sequence",
     "MusicTransformerModel",
     "TransformerConfig",
     "MusicVAE",
@@ -63,5 +60,4 @@ __all__ = [
     "AudioFormatConverter",
     "SUPPORTED_FORMATS",
     "LoopLibrary",
-    "PitchProcessor",
 ]

@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://calliope:calliope@localhost:5432/calliope"
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "mistral"
+    ollama_model: str = "gemma2:9b"
     aamati_root: str = "/opt/Aamati/aamati_ml"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
@@ -17,11 +17,14 @@ class Settings(BaseSettings):
     processed_path: Path = Path("/data/audio/processed")
     exports_path: Path = Path("/data/audio/exports")
     samples_path: Path = Path("/data/audio/samples")
+    data_path: Path = Path("/data")
 
     max_upload_size_mb: int = 100
     supported_audio_formats: list[str] = ["wav", "mp3", "ogg", "flac", "m4a", "aac"]
     default_sample_rate: int = 48000
     default_bit_depth: int = 24
+    ollama_timeout_sec: float = 300.0
+    ollama_num_predict: int = 280
 
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
@@ -46,7 +49,15 @@ class Settings(BaseSettings):
         }.get(name.lower(), False)
 
     def ensure_directories(self) -> None:
-        for path in [self.recordings_path, self.processed_path, self.exports_path, self.samples_path]:
+        for path in [
+            self.data_path,
+            self.recordings_path,
+            self.processed_path,
+            self.exports_path,
+            self.samples_path,
+            self.data_path / "sessions",
+            self.data_path / "projects",
+        ]:
             path.mkdir(parents=True, exist_ok=True)
 
 
