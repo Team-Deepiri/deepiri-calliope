@@ -97,6 +97,8 @@ export function Studio() {
   const [busyM, setBusyM] = useState(false);
   const [busyG, setBusyG] = useState(false);
 
+  const [playHint, setPlayHint] = useState("");
+
   tracksRef.current = tracks;
   clipsRef.current = clips;
 
@@ -152,6 +154,12 @@ export function Studio() {
       setTransport((t) => ({ ...t, playing: false, bar: Math.floor(engine.currentBar()) + 1 }));
       return;
     }
+    if (clipsRef.current.length === 0) {
+      setPlayHint("Record or drop audio onto a track first — then Play will audition timeline clips.");
+      setVocalDockOpen(true);
+      return;
+    }
+    setPlayHint("");
     const startBar = Math.max(0, transport.bar - 1);
     await engine.play({
       bpm,
@@ -204,6 +212,7 @@ export function Studio() {
     const trackId = selectedTrackId || vocalTrack?.id || "4";
     const startBar = Math.max(0, transport.bar - 1);
     placeClipFromFile(file, sessionId, trackId, startBar, durationHint);
+    setPlayHint("");
   };
 
   const onTrackFileDrop = useCallback(
@@ -264,8 +273,13 @@ export function Studio() {
       });
       setPlanOut(res.response);
       setPlanMeta(`${res.provider} · ${res.model}`);
-    } catch (e) {
-      setPlanOut(String(e));
+      } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("TimeoutError") || msg.includes("aborted") || msg.includes("signal timed out")) {
+        setPlanOut("Timed out waiting for local Ollama. Keep Ollama running, prefer gemma2:9b, and retry with a shorter brief.");
+      } else {
+        setPlanOut(msg);
+      }
     } finally {
       setPlanBusy(false);
     }
@@ -326,6 +340,7 @@ export function Studio() {
           onStop={onStop}
           onRecord={onRecord}
         />
+        {playHint && <span className="daw-toolbar__hint">{playHint}</span>}
         <span className="daw-toolbar__spacer" />
         <div className="daw-toolbar__modes">
           <button

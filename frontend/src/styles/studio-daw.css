@@ -186,6 +186,13 @@
   flex: 1;
 }
 
+.daw-toolbar__hint {
+  max-width: 280px;
+  font-size: 0.7rem;
+  color: var(--daw-warn);
+  line-height: 1.25;
+}
+
 .daw-toolbar__modes {
   display: flex;
   gap: 2px;
