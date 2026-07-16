@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     default_sample_rate: int = 48000
     default_bit_depth: int = 24
     ollama_timeout_sec: float = 300.0
-    ollama_num_predict: int = 280
+    ollama_num_predict: int = 160
 
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None

@@ -107,9 +107,11 @@ def build_user_payload(
 
     # Standard depth: lean prompt so local Ollama finishes in a reasonable time.
     return (
-        f"{analysis_block}\n{structure_block}\n\n"
+        f"{analysis_block}"
+        f"- Scaffold bars: {struct.total_bars}\n\n"
         f"{vocal_block}"
-        f"[Producer brief]\n{user_prompt.strip()}\n"
-        f"{tail}"
-        "Keep each section to 2–4 short bullets.\n"
+        f"[Producer brief]\n{user_prompt.strip()}\n\n"
+        "Reply with short markdown sections only:\n"
+        "## Tempo\n## Harmony\n## Groove\n## Arrangement\n## Mix\n"
+        "Max 2 bullets per section.\n"
     )

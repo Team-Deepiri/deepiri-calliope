@@ -118,6 +118,7 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   const [playingFileId, setPlayingFileId] = useState<string | null>(null);
   const isRecordingRef = useRef(false);
   const recordingTimeRef = useRef(0);
+  const recordStartedAtRef = useRef<number | null>(null);
   const audioPlayRef = useRef<HTMLAudioElement | null>(null);
   const apiBase = (import.meta.env.VITE_API_BASE ?? "").trim();
   
@@ -211,7 +212,8 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
       setIsRecording(true);
       setRecordingTime(0);
       recordingTimeRef.current = 0;
-      
+      recordStartedAtRef.current = performance.now();
+
       startVisualization();
       startTimer();
     } catch (e) {
@@ -248,7 +250,9 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
   };
   
   const handleRecordingComplete = async (blob: Blob) => {
-    const durationHint = recordingTimeRef.current;
+    const elapsedMs = recordStartedAtRef.current != null ? performance.now() - recordStartedAtRef.current : 0;
+    const durationHint = Math.max(recordingTimeRef.current, elapsedMs / 1000);
+    recordStartedAtRef.current = null;
     try {
       let session = currentSession;
       if (!session) {
