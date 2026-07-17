@@ -6,11 +6,19 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   verify-api-image:
     runs-on: ubuntu-latest
     steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Verify API image exists on GHCR (wait for docker-publish)
         env:
           IMAGE_TAG: ${{ github.ref_name }}

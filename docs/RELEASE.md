@@ -9,7 +9,11 @@
 ## CI notes
 
 - Aamati is public and cloned over HTTPS during the API image build — **no deploy key required**.
-- GHCR package `ghcr.io/team-deepiri/calliope-api` is published as **public** for anonymous `docker compose pull`.
+- GHCR package `ghcr.io/team-deepiri/calliope-api` must be **Public** so desktop users can `docker compose pull` without login.
+- Org package visibility **cannot** be flipped with `GITHUB_TOKEN` (the Packages API returns 404). Do it once in the UI:
+  1. Open [calliope-api package](https://github.com/orgs/Team-Deepiri/packages/container/package/calliope-api) (or **Repo → Packages**).
+  2. **Package settings → Change visibility → Public**.
+- `docker-publish` only builds/pushes; `release` verifies the image with a GHCR login so CI still works while the package is private.
 
 ## Linux AppImage note
 
