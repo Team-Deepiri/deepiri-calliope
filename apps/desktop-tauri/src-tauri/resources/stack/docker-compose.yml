@@ -24,6 +24,12 @@ services:
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       DATABASE_URL: postgresql+asyncpg://calliope:calliope@postgres:5432/calliope
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,https://tauri.localhost,http://tauri.localhost
+      DATA_PATH: /data
+      AUDIO_STORAGE_PATH: /data/audio
+      RECORDINGS_PATH: /data/audio/recordings
+      PROCESSED_PATH: /data/audio/processed
+      EXPORTS_PATH: /data/audio/exports
+      SAMPLES_PATH: /data/audio/samples
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
