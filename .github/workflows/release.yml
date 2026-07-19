@@ -1,0 +1,149 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  verify-api-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify API image exists on GHCR (wait for docker-publish)
+        env:
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          for i in $(seq 1 36); do
+            if docker manifest inspect "ghcr.io/team-deepiri/calliope-api:${IMAGE_TAG}" 2>/dev/null; then
+              echo "Found tagged image."
+              exit 0
+            fi
+            if docker manifest inspect ghcr.io/team-deepiri/calliope-api:latest 2>/dev/null; then
+              echo "Found latest image."
+              exit 0
+            fi
+            echo "Waiting for API image (attempt $i/36)..."
+            sleep 10
+          done
+          echo "API image not found on GHCR." >&2
+          exit 1
+
+  build:
+    needs: verify-api-image
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            latest_name: Calliope-latest.dmg
+            artifact_glob: "*.dmg"
+            tauri_target: aarch64-apple-darwin
+          - os: ubuntu-22.04
+            latest_name: Calliope-latest.AppImage
+            artifact_glob: "*.AppImage"
+            tauri_target: ""
+          - os: windows-latest
+            latest_name: Calliope-latest-setup.exe
+            artifact_glob: "*-setup.exe"
+            tauri_target: ""
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            apps/desktop-tauri/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add macOS Rust target (arm64)
+        if: matrix.os == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev
+
+      - name: Build frontend for desktop API base
+        working-directory: frontend
+        run: |
+          npm ci
+          VITE_API_BASE=http://127.0.0.1:8080 npm run build
+
+      - name: Install desktop dependencies
+        working-directory: apps/desktop-tauri
+        run: npm ci
+
+      - name: Generate Tauri icons when missing
+        shell: bash
+        run: bash scripts/ci/generate-tauri-icons.sh
+
+      - name: Build desktop app
+        working-directory: apps/desktop-tauri
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.tauri_target }}" ]; then
+            npm run tauri build -- --target "${{ matrix.tauri_target }}"
+          else
+            npm run tauri build
+          fi
+
+      - name: Rename to stable landing filename
+        shell: bash
+        run: |
+          ARTIFACT="$(find apps/desktop-tauri/src-tauri/target -path '*/bundle/*/${{ matrix.artifact_glob }}' | head -n 1)"
+          test -n "$ARTIFACT"
+          mkdir -p release-out
+          cp "$ARTIFACT" "release-out/${{ matrix.latest_name }}"
+
+      - name: Upload latest-named asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.latest_name }}
+          path: release-out/${{ matrix.latest_name }}
+
+      - name: Upload versioned assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ runner.os }}
+          path: release-out/${{ matrix.latest_name }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**

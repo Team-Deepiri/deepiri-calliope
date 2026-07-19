@@ -10,7 +10,7 @@ services:
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-ollama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma2:9b}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash}

@@ -1,6 +1,8 @@
 # deepiri-calliope
 
 Local-first AI music studio stack for Team Deepiri: FastAPI backend, Vite React UI, PostgreSQL, and Ollama with shared [`deepiri-ollama-utils`](https://github.com/Team-Deepiri/deepiri-ollama-utils). Groove and mood tooling integrates the [`Aamati`](https://github.com/jrb00013/Aamati) ML tree (cloned at image build time).
+<img width="956" height="453" alt="image" src="https://github.com/user-attachments/assets/8117b28a-30c2-4f88-ad9e-58665863ece3" />
+
 <img width="2555" height="1332" alt="image" src="https://github.com/user-attachments/assets/fa101195-a9bd-48fb-9a36-c3d997df38c4" />
 
 <img width="1279" height="671" alt="image" src="https://github.com/user-attachments/assets/845976ec-0127-4bec-9642-70568fb50c8d" />
@@ -9,12 +11,11 @@ Local-first AI music studio stack for Team Deepiri: FastAPI backend, Vite React 
 
 ```bash
 cp .env.example .env
-export DOCKER_BUILDKIT=1
-docker compose build --ssh default
+docker compose build
 docker compose up
 ```
 
-The API image clones [Aamati](https://github.com/jrb00013/Aamati) over SSH during build; ensure your SSH agent can reach GitHub (`ssh-add -l`).
+The API image clones [Aamati](https://github.com/jrb00013/Aamati) during build.
 
 - API: `http://localhost:8080`
 - Web (dev): `http://localhost:5173`
