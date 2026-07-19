@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { ArrowRight, GitBranch } from "lucide-react";
+import { ArrowRight, GitBranch, Hand } from "lucide-react";
 import { fetchHealth, fetchRouterProviders } from "../api/client";
 
 export function Home() {
@@ -51,6 +51,9 @@ export function Home() {
           <Link to="/studio" className="home-v2__cta">
             Open Studio <ArrowRight size={16} />
           </Link>
+          <Link to="/gestures" className="home-v2__ghost">
+            Gestures <Hand size={14} />
+          </Link>
           <Link to="/pipeline" className="home-v2__ghost">
             Pipeline <GitBranch size={14} />
           </Link>
@@ -61,6 +64,10 @@ export function Home() {
         <Link to="/studio" className="home-v2__card">
           <span className="home-v2__card-label">Studio</span>
           <span className="home-v2__card-desc">Record, process, brief</span>
+        </Link>
+        <Link to="/gestures" className="home-v2__card">
+          <span className="home-v2__card-label">Gestures</span>
+          <span className="home-v2__card-desc">Hand-driven performance</span>
         </Link>
         <Link to="/pipeline" className="home-v2__card">
           <span className="home-v2__card-label">Pipeline</span>
