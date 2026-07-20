@@ -17,7 +17,7 @@ class MelodyGenerator:
         
         # Simple Markov transition matrix for melodic motion (index-based)
         # Higher probability for small intervals (step-wise motion)
-        self.transition_probs = self._create_transition_matrix(len(scale) * 2)
+        self.transition_probs = self._create_transition_matrix(len(scale) * 3)
 
     def _create_transition_matrix(self, size: int) -> np.ndarray:
         matrix = np.zeros((size, size))

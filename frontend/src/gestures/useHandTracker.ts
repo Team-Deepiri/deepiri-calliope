@@ -4,11 +4,22 @@ import {
   HandLandmarker,
   DrawingUtils,
 } from "@mediapipe/tasks-vision";
-import { deriveHandSignals, EMPTY_SIGNALS, type HandSignals, type Landmark } from "./deriveSignals";
+import {
+  deriveStereoHandSignals,
+  EMPTY_SIGNALS,
+  type HandSignals,
+  type Landmark,
+} from "./deriveSignals";
 
 const WASM_ROOT = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm`;
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+const HAND_COLORS: Record<"Left" | "Right" | "Unknown", { line: string; point: string; fill: string }> = {
+  Left: { line: "#34d399", point: "#2dd4bf", fill: "#14b8a6" },
+  Right: { line: "#818cf8", point: "#f97316", fill: "#f59e0b" },
+  Unknown: { line: "#94a3b8", point: "#cbd5e1", fill: "#64748b" },
+};
 
 export type TrackerStatus = "idle" | "starting" | "running" | "error";
 
@@ -16,19 +27,37 @@ export type HandTrackerState = {
   status: TrackerStatus;
   error: string | null;
   signals: HandSignals;
+  left: HandSignals;
+  right: HandSignals;
+  hands: HandSignals[];
   fps: number;
 };
 
 type UseHandTrackerOptions = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  /** Unordered hands (legacy). Prefer onStereoHands for composition. */
+  onHands?: (hands: Landmark[][]) => void;
+  /** Stable Left/Right landmark slots for pose detection. */
+  onStereoHands?: (left: Landmark[] | null, right: Landmark[] | null) => void;
+  /** Fired every tracking frame with stable Left/Right signal slots (instrument). */
+  onStereoFrame?: (left: HandSignals, right: HandSignals) => void;
 };
 
-export function useHandTracker({ videoRef, canvasRef }: UseHandTrackerOptions) {
+export function useHandTracker({
+  videoRef,
+  canvasRef,
+  onHands,
+  onStereoHands,
+  onStereoFrame,
+}: UseHandTrackerOptions) {
   const [state, setState] = useState<HandTrackerState>({
     status: "idle",
     error: null,
     signals: { ...EMPTY_SIGNALS },
+    left: { ...EMPTY_SIGNALS, label: "Left" },
+    right: { ...EMPTY_SIGNALS, label: "Right" },
+    hands: [],
     fps: 0,
   });
 
@@ -38,6 +67,12 @@ export function useHandTracker({ videoRef, canvasRef }: UseHandTrackerOptions) {
   const runningRef = useRef(false);
   const lastTsRef = useRef(-1);
   const fpsAccRef = useRef({ frames: 0, t0: 0 });
+  const onHandsRef = useRef(onHands);
+  const onStereoHandsRef = useRef(onStereoHands);
+  const onStereoRef = useRef(onStereoFrame);
+  onHandsRef.current = onHands;
+  onStereoHandsRef.current = onStereoHands;
+  onStereoRef.current = onStereoFrame;
 
   const stop = useCallback(() => {
     runningRef.current = false;
@@ -66,6 +101,9 @@ export function useHandTracker({ videoRef, canvasRef }: UseHandTrackerOptions) {
       status: "idle",
       error: null,
       signals: { ...EMPTY_SIGNALS },
+      left: { ...EMPTY_SIGNALS, label: "Left" },
+      right: { ...EMPTY_SIGNALS, label: "Right" },
+      hands: [],
       fps: 0,
     });
   }, [videoRef, canvasRef]);
@@ -96,7 +134,7 @@ export function useHandTracker({ videoRef, canvasRef }: UseHandTrackerOptions) {
             delegate: "GPU",
           },
           runningMode: "VIDEO",
-          numHands: 1,
+          numHands: 2,
         });
       } catch {
         landmarker = await HandLandmarker.createFromOptions(vision, {
@@ -105,7 +143,7 @@ export function useHandTracker({ videoRef, canvasRef }: UseHandTrackerOptions) {
             delegate: "CPU",
           },
           runningMode: "VIDEO",
-          numHands: 1,
+          numHands: 2,
         });
       }
       landmarkerRef.current = landmarker;
@@ -140,27 +178,45 @@ export function useHandTracker({ videoRef, canvasRef }: UseHandTrackerOptions) {
         lastTsRef.current = now;
 
         const result = lm.detectForVideo(v, now);
+        const rawHands = result.landmarks ?? [];
+        const handedness = (result.handedness ?? []) as Array<Array<{ categoryName?: string; score?: number }>>;
+        const { left, right, list, leftLandmarks, rightLandmarks } = deriveStereoHandSignals(
+          rawHands as Landmark[][],
+          handedness,
+        );
+
         const ctx = c.getContext("2d");
         if (ctx) {
           if (!drawer) drawer = new DrawingUtils(ctx);
           ctx.clearRect(0, 0, c.width, c.height);
-          const hands = result.landmarks ?? [];
-          for (const hand of hands) {
-            drawer.drawConnectors(hand, HandLandmarker.HAND_CONNECTIONS, {
-              color: "#818cf8",
+          rawHands.forEach((hand, i) => {
+            const name = handedness[i]?.[0]?.categoryName;
+            const side: "Left" | "Right" | "Unknown" =
+              name === "Left" || name === "Right"
+                ? name
+                : (() => {
+                    const wristX = hand[0]?.x ?? 0.5;
+                    const otherX = rawHands.find((_, j) => j !== i)?.[0]?.x;
+                    if (otherX == null) return wristX >= 0.5 ? "Left" : "Right";
+                    return wristX >= otherX ? "Left" : "Right";
+                  })();
+            const colors = HAND_COLORS[side];
+            drawer!.drawConnectors(hand, HandLandmarker.HAND_CONNECTIONS, {
+              color: colors.line,
               lineWidth: 3,
             });
-            drawer.drawLandmarks(hand, {
-              color: "#f97316",
-              fillColor: "#f59e0b",
+            drawer!.drawLandmarks(hand, {
+              color: colors.point,
+              fillColor: colors.fill,
               lineWidth: 1,
               radius: 4,
             });
-          }
+          });
         }
 
-        const first = result.landmarks?.[0] as Landmark[] | undefined;
-        const signals = deriveHandSignals(first);
+        onStereoHandsRef.current?.(leftLandmarks, rightLandmarks);
+        onHandsRef.current?.(rawHands as Landmark[][]);
+        onStereoRef.current?.(left, right);
 
         fpsAccRef.current.frames += 1;
         const elapsed = now - fpsAccRef.current.t0;
@@ -170,9 +226,27 @@ export function useHandTracker({ videoRef, canvasRef }: UseHandTrackerOptions) {
           fpsAccRef.current = { frames: 0, t0: now };
         }
 
+        const signals = left.detected && right.detected
+          ? {
+              detected: true,
+              label: "Unknown" as const,
+              height: (left.height + right.height) / 2,
+              pinch: Math.min(left.pinch, right.pinch),
+              openness: (left.openness + right.openness) / 2,
+              fist: left.fist && right.fist,
+            }
+          : left.detected
+            ? left
+            : right.detected
+              ? right
+              : EMPTY_SIGNALS;
+
         setState((s) => ({
           ...s,
           signals,
+          left,
+          right,
+          hands: list.filter((h) => h.detected),
           fps: fps || s.fps,
           status: "running",
         }));
@@ -188,6 +262,9 @@ export function useHandTracker({ videoRef, canvasRef }: UseHandTrackerOptions) {
         status: "error",
         error: message,
         signals: { ...EMPTY_SIGNALS },
+        left: { ...EMPTY_SIGNALS, label: "Left" },
+        right: { ...EMPTY_SIGNALS, label: "Right" },
+        hands: [],
         fps: 0,
       });
     }

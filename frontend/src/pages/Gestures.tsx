@@ -1,10 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Hand, Link2, Radio, Square, Volume2, VolumeX, Video } from "lucide-react";
+import { Hand, Radio, Sparkles, Square, Volume2, VolumeX, Video, Wand2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { CameraStage } from "../components/gestures/CameraStage";
 import { useHandTracker } from "../gestures/useHandTracker";
 import { useGestureSynth } from "../gestures/useGestureSynth";
+import { useCompositionTriggers } from "../gestures/useCompositionTriggers";
+import { POSE_VOCAB } from "../gestures/detectPoses";
+import type { HandSignals } from "../gestures/deriveSignals";
+import { signalsToAmp } from "../gestures/gestureSynth";
 import "../styles/gestures.css";
 
 function Meter({ label, value, accent }: { label: string; value: number; accent: string }) {
@@ -25,6 +29,55 @@ function Meter({ label, value, accent }: { label: string; value: number; accent:
   );
 }
 
+function HandVoiceCard({
+  title,
+  accent,
+  hand,
+  timbre,
+  panHint,
+  instrumentLive,
+}: {
+  title: string;
+  accent: string;
+  hand: HandSignals;
+  timbre: string;
+  panHint: string;
+  instrumentLive: boolean;
+}) {
+  const amp = signalsToAmp(hand);
+  const sounding = instrumentLive && amp > 0.05;
+  return (
+    <div
+      className={
+        "gestures-hand-col" +
+        (hand.detected ? " gestures-hand-col--live" : "") +
+        (sounding ? " gestures-hand-col--sounding" : "")
+      }
+    >
+      <div className="gestures-hand-col__head">
+        <div className="gestures-hand-col__title">
+          <span style={{ color: accent }}>{title}</span>
+          <span
+            className={
+              "gestures-voice-dot" + (sounding ? " gestures-voice-dot--on" : "")
+            }
+            style={sounding ? { background: accent, boxShadow: `0 0 8px ${accent}` } : undefined}
+            title={sounding ? "Voice active" : "Silent"}
+          />
+        </div>
+        <small>
+          {!hand.detected && "not in frame"}
+          {hand.detected && hand.fist && "fist mute"}
+          {hand.detected && !hand.fist && (sounding ? `${timbre} · ${panHint}` : `${timbre} · open hand to hear`)}
+        </small>
+      </div>
+      <Meter label="Pitch" value={hand.height} accent={accent} />
+      <Meter label="Level" value={amp} accent={accent} />
+      <Meter label="Filter" value={hand.openness} accent={accent} />
+    </div>
+  );
+}
+
 function clamp01(v: number) {
   return Math.min(1, Math.max(0, v));
 }
@@ -32,19 +85,60 @@ function clamp01(v: number) {
 export function Gestures() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { status, error, signals, fps, start, stop } = useHandTracker({ videoRef, canvasRef });
-  const { armed, error: audioError, arm, disarm } = useGestureSynth(signals);
+  const [composeArmed, setComposeArmed] = useState(false);
+  const {
+    onStereoHands,
+    events,
+    lastPose,
+    busy: composeBusy,
+    playing: composePlaying,
+    activeLayers,
+    error: composeError,
+    stop: stopComposition,
+  } = useCompositionTriggers(composeArmed);
+
+  const instrumentMuted = composeBusy || composePlaying;
+  const { armed, error: audioError, arm, disarm, onFrame } = useGestureSynth(instrumentMuted);
+
+  const { status, error, left, right, fps, start, stop } = useHandTracker({
+    videoRef,
+    canvasRef,
+    onStereoHands,
+    onStereoFrame: onFrame,
+  });
+
   const live = status === "running" || status === "starting";
+  const handCount = (left.detected ? 1 : 0) + (right.detected ? 1 : 0);
+  const instrumentLive = armed && !instrumentMuted;
+  const leftAmp = signalsToAmp(left);
+  const rightAmp = signalsToAmp(right);
+  const bothSounding = instrumentLive && leftAmp > 0.05 && rightAmp > 0.05;
 
   useEffect(() => {
     if (status !== "running" && armed) {
       disarm();
     }
-  }, [status, armed, disarm]);
+    if (status !== "running" && composeArmed) {
+      setComposeArmed(false);
+    }
+  }, [status, armed, disarm, composeArmed]);
 
   function handleStopCamera() {
     disarm();
+    setComposeArmed(false);
+    stopComposition();
     stop();
+  }
+
+  function handleArmSound() {
+    setComposeArmed(false);
+    stopComposition();
+    void arm();
+  }
+
+  function handleArmComposition() {
+    disarm();
+    setComposeArmed(true);
   }
 
   return (
@@ -52,8 +146,8 @@ export function Gestures() {
       <div className="gradient-strip" style={{ maxWidth: 200, marginBottom: "1rem" }} />
       <h1 className="section-title">Gestures</h1>
       <p className="lead mt-sm">
-        Webcam hand tracking as a <strong>performance surface</strong>. Height drives pitch, pinch drives
-        level, openness opens the filter; fist mutes. Discrete composition triggers come next.
+        Two-hand performance surface: <strong>left + right voices play together</strong> (stereo).
+        Switch to composition mode for pose-triggered clips — modes never overlap.
       </p>
 
       <div className="gestures-layout mt-lg">
@@ -80,14 +174,94 @@ export function Gestures() {
               <Radio size={14} />
               {status === "idle" && "Idle"}
               {status === "starting" && "Loading MediaPipe…"}
-              {status === "running" && `Tracking · ${fps} fps`}
+              {status === "running" && (
+                <>
+                  {fps} fps · {handCount}/2 hands
+                  {bothSounding && " · both voices"}
+                  {instrumentLive && !bothSounding && handCount === 2 && " · open both hands"}
+                </>
+              )}
               {status === "error" && "Error"}
+              {composeBusy && " · generating…"}
+              {composePlaying && !composeBusy && " · playing…"}
             </span>
             <Link to="/studio" className="btn-modern btn-ghost" style={{ textDecoration: "none", marginLeft: "auto" }}>
               Open Studio
             </Link>
           </div>
           {error && <p className="gestures-error">{error}</p>}
+
+          <div className="gestures-vocab mt-lg">
+            <div className="gestures-signals-head">
+              <Wand2 size={18} />
+              <div>
+                <div className="field-label" style={{ marginBottom: 0 }}>
+                  Composition vocabulary
+                </div>
+                <small className="gestures-muted">
+                  Each hand can fire a different pose at the same time — layers stack (drums + melody, etc.).
+                  Repeating the same pose replaces that layer only.
+                </small>
+              </div>
+            </div>
+            <ul className="gestures-vocab__list">
+              {POSE_VOCAB.map((row) => (
+                <li
+                  key={row.id}
+                  className={
+                    "gestures-vocab__item" + (lastPose === row.id ? " gestures-vocab__item--flash" : "")
+                  }
+                >
+                  <strong>{row.label}</strong>
+                  <span>{row.action}</span>
+                  <small>{row.hint}</small>
+                </li>
+              ))}
+            </ul>
+            <div className="gestures-audio__actions" style={{ marginTop: "0.75rem" }}>
+              {!composeArmed ? (
+                <button
+                  type="button"
+                  className="btn-modern btn-primary"
+                  onClick={handleArmComposition}
+                  disabled={status !== "running"}
+                >
+                  <Sparkles size={18} />
+                  Arm composition
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-modern btn-ghost"
+                  onClick={() => {
+                    setComposeArmed(false);
+                    stopComposition();
+                  }}
+                >
+                  Disarm composition
+                </button>
+              )}
+              <span className={"gestures-audio__badge" + (composeArmed ? " gestures-audio__badge--on" : "")}>
+                {composeArmed ? "listening" : "off"}
+              </span>
+              {activeLayers.length > 0 && (
+                <span className="gestures-layers-badge">
+                  layers: {activeLayers.join(" + ")}
+                </span>
+              )}
+            </div>
+            {composeError && <p className="gestures-error">{composeError}</p>}
+            {events.length > 0 && (
+              <ul className="gestures-events">
+                {events.map((ev) => (
+                  <li key={ev.id} className={`gestures-events__item gestures-events__item--${ev.status}`}>
+                    <span>{ev.pose.replace("_", " ")}</span>
+                    <span>{ev.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
         <div className="glass-panel gestures-panel stack" style={{ padding: "1.25rem" }}>
@@ -95,21 +269,40 @@ export function Gestures() {
             <Hand size={18} />
             <div>
               <div className="field-label" style={{ marginBottom: 0 }}>
-                Instrument signals
+                Dual-hand instrument
               </div>
               <small className="gestures-muted">
-                {signals.detected ? "Hand detected" : "No hand in frame"}
-                {signals.fist ? " · fist" : ""}
+                Both voices are independent and mix in stereo. Green dots = that voice is sounding.
+                {instrumentMuted && armed ? " Muted while composition plays." : ""}
               </small>
             </div>
           </div>
 
-          <Meter label="Height → pitch" value={signals.height} accent="var(--primary-500)" />
-          <Meter label="Pinch → level" value={1 - signals.pinch} accent="var(--deepiri-orange)" />
-          <Meter label="Openness → filter" value={signals.openness} accent="#34d399" />
+          <div className="gestures-hand-grid">
+            <HandVoiceCard
+              title="Left"
+              accent="#34d399"
+              hand={left}
+              timbre="saw"
+              panHint="ear L"
+              instrumentLive={instrumentLive}
+            />
+            <HandVoiceCard
+              title="Right"
+              accent="#818cf8"
+              hand={right}
+              timbre="tri"
+              panHint="ear R"
+              instrumentLive={instrumentLive}
+            />
+          </div>
 
-          <div className={"gestures-fist" + (signals.fist ? " gestures-fist--on" : "")}>
-            Fist mute {signals.fist ? "ON" : "off"}
+          <div className="gestures-duo-hint">
+            <span className={left.detected ? "is-on" : ""}>L {left.detected ? "tracked" : "—"}</span>
+            <span className={bothSounding ? "is-on" : ""}>
+              {bothSounding ? "playing together" : handCount < 2 ? "show both hands" : "spread / open fingers"}
+            </span>
+            <span className={right.detected ? "is-on" : ""}>R {right.detected ? "tracked" : "—"}</span>
           </div>
 
           <div className="gestures-audio">
@@ -118,7 +311,7 @@ export function Gestures() {
                 Audible preview
               </span>
               <span className={"gestures-audio__badge" + (armed ? " gestures-audio__badge--on" : "")}>
-                {armed ? "armed" : "disarmed"}
+                {armed ? (instrumentMuted ? "muted" : "armed") : "disarmed"}
               </span>
             </div>
             <div className="gestures-audio__actions">
@@ -126,9 +319,9 @@ export function Gestures() {
                 <button
                   type="button"
                   className="btn-modern btn-primary"
-                  onClick={() => void arm()}
+                  onClick={handleArmSound}
                   disabled={status !== "running"}
-                  title={status !== "running" ? "Start the camera first" : "Arm Web Audio preview"}
+                  title={status !== "running" ? "Start the camera first" : "Arm dual-hand synth (disarms composition)"}
                 >
                   <Volume2 size={18} />
                   Arm sound
@@ -142,16 +335,8 @@ export function Gestures() {
             </div>
             {audioError && <p className="gestures-error">{audioError}</p>}
             <p className="gestures-muted" style={{ marginTop: "0.35rem" }}>
-              Sawtooth + lowpass. Raise your hand for pitch, open thumb/index for louder, spread fingers
-              for brightness. Fist or leave frame to silence.
+              Raise a hand for pitch, open the hand for level. Headphones make the L/R split obvious.
             </p>
-          </div>
-
-          <div className="gestures-map-note">
-            <Link2 size={14} />
-            <span>
-              Next: discrete poses (swipe / thumbs-up) can trigger Conductor / drum generation into Studio.
-            </span>
           </div>
         </div>
       </div>
