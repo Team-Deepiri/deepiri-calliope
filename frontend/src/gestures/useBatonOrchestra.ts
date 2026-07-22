@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HandSignals, Landmark } from "./deriveSignals";
+import { deriveHandSignals } from "./deriveSignals";
 import { BatonDetector } from "./batonDetect";
 import { OrchestraEngine } from "./orchestraEngine";
 import {
@@ -26,16 +27,22 @@ function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
 }
 
-function mapLeftCues(left: HandSignals): Record<OrchestraGroupId, number> {
-  if (!left.detected || left.fist) {
-    return { bass: 0.35, mid: 0.35, treble: 0.35 };
+/** Strong contrast so meters and ears both register changes. */
+function mapGroupCues(cueHand: HandSignals): Record<OrchestraGroupId, number> {
+  if (!cueHand.detected) {
+    // No cue hand → full balanced bed (piece still audible); raise left to sculpt.
+    return { bass: 0.75, mid: 0.75, treble: 0.75 };
   }
-  const open = left.openness;
-  const h = left.height;
+  if (cueHand.fist) {
+    return { bass: 0.08, mid: 0.08, treble: 0.08 };
+  }
+  const open = cueHand.openness;
+  const h = cueHand.height;
+  // Extreme ends: closed+low ≈ bass only; open+high ≈ treble blaze
   return {
-    bass: clamp01(0.25 + (1 - h) * 0.75),
-    mid: clamp01(0.2 + open * 0.8),
-    treble: clamp01(0.15 + h * 0.55 + open * 0.35),
+    bass: clamp01(0.05 + (1 - h) * 0.95),
+    mid: clamp01(0.05 + open * 0.95),
+    treble: clamp01(0.05 + h * 0.7 + open * 0.3),
   };
 }
 
@@ -45,6 +52,11 @@ export function useBatonOrchestra(enabled: boolean) {
   const scoreRef = useRef<OrchestraScore | null>(null);
   const armedRef = useRef(false);
   const lastUi = useRef(0);
+  const groupsRef = useRef<Record<OrchestraGroupId, number>>({
+    bass: 0.75,
+    mid: 0.75,
+    treble: 0.75,
+  });
 
   const [manifest, setManifest] = useState<OrchestraManifest | null>(null);
   const [scoreId, setScoreId] = useState<string>("moonlight-1");
@@ -54,9 +66,9 @@ export function useBatonOrchestra(enabled: boolean) {
   const [levels, setLevels] = useState<BatonLevels>({
     tempoRate: 1,
     dynamics: 0.55,
-    bass: 0.7,
-    mid: 0.7,
-    treble: 0.7,
+    bass: 0.75,
+    mid: 0.75,
+    treble: 0.75,
     progress: 0,
     beat: false,
     tipX: 0.5,
@@ -117,9 +129,18 @@ export function useBatonOrchestra(enabled: boolean) {
       scoreRef.current = score;
       await engineRef.current.arm(score);
       batonRef.current.reset();
+      groupsRef.current = { bass: 0.75, mid: 0.75, treble: 0.75 };
+      engineRef.current.setGroupLevels(groupsRef.current);
       armedRef.current = true;
       setArmed(true);
       setScoreId(entry.id);
+      setLevels((prev) => ({
+        ...prev,
+        bass: 0.75,
+        mid: 0.75,
+        treble: 0.75,
+        progress: 0,
+      }));
     } catch (e) {
       disarm();
       setError(e instanceof Error ? e.message : String(e));
@@ -128,56 +149,49 @@ export function useBatonOrchestra(enabled: boolean) {
     }
   }, [manifest, scoreId, disarm]);
 
-  const onStereoFrame = useCallback((left: HandSignals, _right: HandSignals) => {
+  /** Apply baton + group cues every frame from landmarks (single source of truth for UI). */
+  const onStereoHands = useCallback((left: Landmark[] | null, right: Landmark[] | null) => {
     if (!armedRef.current) return;
-    // Right landmarks come via onStereoHands for tip tracking; here apply left cues + progress UI
-    const groups = mapLeftCues(left);
+
+    const score = scoreRef.current;
+    const baseBpm = score?.bpmHint ?? 54;
+    const baton = batonRef.current.update(right, baseBpm);
+    engineRef.current.setTempoRate(baton.tempoRate);
+    engineRef.current.setDynamics(baton.active ? baton.dynamics : baton.dynamics * 0.45);
+
+    // Cue hand = left landmarks; if missing, fall back to right palm signals so one hand still moves meters.
+    const leftSig = deriveHandSignals(left, "Left");
+    const rightSig = deriveHandSignals(right, "Right");
+    const cueHand = leftSig.detected ? leftSig : rightSig;
+    const groups = mapGroupCues(cueHand);
+    groupsRef.current = groups;
     engineRef.current.setGroupLevels(groups);
 
     const now = performance.now();
-    if (now - lastUi.current > 50) {
+    if (now - lastUi.current > 40 || baton.beat) {
       lastUi.current = now;
       const dur = engineRef.current.duration || 1;
-      setLevels((prev) => ({
-        ...prev,
+      setLevels({
+        tempoRate: baton.tempoRate,
+        dynamics: baton.dynamics,
         bass: groups.bass,
         mid: groups.mid,
         treble: groups.treble,
+        tipX: baton.tipX,
+        tipY: baton.tipY,
+        beat: baton.beat,
         progress: Math.min(1, engineRef.current.currentScoreTime / dur),
-        beat: false,
-      }));
+      });
       if (!engineRef.current.isRunning && armedRef.current) {
-        // Piece finished
         armedRef.current = false;
         setArmed(false);
       }
     }
   }, []);
 
-  const onStereoHands = useCallback((left: Landmark[] | null, right: Landmark[] | null) => {
-    if (!armedRef.current) return;
-    const score = scoreRef.current;
-    const baseBpm = score?.bpmHint ?? 54;
-    const baton = batonRef.current.update(right, baseBpm);
-    engineRef.current.setTempoRate(baton.tempoRate);
-    engineRef.current.setDynamics(baton.active ? baton.dynamics : baton.dynamics * 0.5);
-
-    // Also apply left cues from landmarks-derived path if frame signals lag
-    void left;
-
-    const now = performance.now();
-    if (now - lastUi.current > 40 || baton.beat) {
-      lastUi.current = now;
-      setLevels((prev) => ({
-        ...prev,
-        tempoRate: baton.tempoRate,
-        dynamics: baton.dynamics,
-        tipX: baton.tipX,
-        tipY: baton.tipY,
-        beat: baton.beat,
-        progress: Math.min(1, engineRef.current.currentScoreTime / (engineRef.current.duration || 1)),
-      }));
-    }
+  // Keep signature for Gestures wiring; hands path owns control.
+  const onStereoFrame = useCallback((_left: HandSignals, _right: HandSignals) => {
+    /* group + baton applied in onStereoHands */
   }, []);
 
   return {

@@ -530,7 +530,8 @@ export function Gestures() {
               </div>
 
               <p className="gestures-coach">
-                Wave the baton (or pencil) — left hand cues bass / mid / treble
+                Right hand = baton tempo/dynamics. Left hand height/openness =
+                bass / mid / treble (one hand still moves the meters).
               </p>
 
               <div className="gestures-preset-row">

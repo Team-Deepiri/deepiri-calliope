@@ -103,7 +103,10 @@ export class OrchestraEngine {
     for (const id of GROUPS) {
       const g = this.groups.get(id);
       if (!g) continue;
-      g.gain.gain.setTargetAtTime(Math.max(0, Math.min(1, levels[id])), t, 0.08);
+      // Square curve: low values nearly mute the bus so cues are obvious
+      const raw = Math.max(0, Math.min(1, levels[id]));
+      const shaped = raw * raw;
+      g.gain.gain.setTargetAtTime(shaped, t, 0.05);
     }
   }
 
