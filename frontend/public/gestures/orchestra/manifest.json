@@ -1,31 +1,53 @@
 {
   "piece": {
-    "id": "moonlight-sonata",
-    "title": "Sonata No. 14 “Moonlight”",
-    "composer": "L. V. Beethoven",
-    "opus": "Op. 27, No. 2",
-    "sourceUrl": "https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=276",
-    "license": "CC BY-SA 2.5"
+    "id": "baton-repertoire",
+    "title": "Baton repertoire",
+    "composer": "select a score below",
+    "license": "Mixed — see README"
   },
   "defaultId": "moonlight-1",
   "scores": [
     {
       "id": "moonlight-1",
-      "label": "I. Adagio sostenuto",
+      "label": "Moonlight I",
       "file": "/gestures/orchestra/moonlight1.mid",
       "bpmHint": 54
     },
     {
       "id": "moonlight-2",
-      "label": "II. Allegretto",
+      "label": "Moonlight II",
       "file": "/gestures/orchestra/moonlight2.mid",
       "bpmHint": 76
     },
     {
       "id": "moonlight-3",
-      "label": "III. Presto agitato",
+      "label": "Moonlight III",
       "file": "/gestures/orchestra/moonlight3.mid",
       "bpmHint": 160
+    },
+    {
+      "id": "cornfield-chase",
+      "label": "Cornfield Chase",
+      "file": "/gestures/orchestra/cornfield-chase.mid",
+      "bpmHint": 94
+    },
+    {
+      "id": "time-inception",
+      "label": "Time (Inception)",
+      "file": "/gestures/orchestra/time-inception.mid",
+      "bpmHint": 110
+    },
+    {
+      "id": "mission-impossible",
+      "label": "Mission Impossible",
+      "file": "/gestures/orchestra/mission-impossible.mid",
+      "bpmHint": 94
+    },
+    {
+      "id": "star-wars",
+      "label": "Star Wars",
+      "file": "/gestures/orchestra/star-wars.mid",
+      "bpmHint": 103
     }
   ]
 }

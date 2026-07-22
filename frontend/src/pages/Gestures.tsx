@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Hand,
+  Pause,
+  Play,
   Radio,
   Sparkles,
   Square,
@@ -170,10 +172,12 @@ export function Gestures() {
     scoreId,
     setScoreId,
     armed: batonIsArmed,
+    playback: batonPlayback,
     busy: batonBusy,
     error: batonError,
     levels: batonLevels,
-    arm: armBaton,
+    play: playBaton,
+    pause: pauseBaton,
     disarm: disarmBaton,
     onStereoFrame: onBatonFrame,
     onStereoHands: onBatonHands,
@@ -255,11 +259,11 @@ export function Gestures() {
     await armConduct();
   }
 
-  async function handleArmBaton() {
+  async function handlePlayBaton() {
     if (mode !== "baton") {
       enterMode("baton");
     }
-    await armBaton();
+    await playBaton();
   }
 
   return (
@@ -304,7 +308,10 @@ export function Gestures() {
                   {mode === "conduct" && conductBusy && " · loading stems…"}
                   {mode === "conduct" && conductIsArmed && !conductBusy && ` · ${sectionLabel(section)}`}
                   {mode === "baton" && batonBusy && " · loading score…"}
-                  {mode === "baton" && batonIsArmed && !batonBusy && ` · ${Math.round(batonLevels.tempoRate * 100)}% tempo`}
+                  {mode === "baton" && batonPlayback === "playing" && !batonBusy &&
+                    ` · ${Math.round(batonLevels.tempoRate * 100)}% tempo`}
+                  {mode === "baton" && batonPlayback === "paused" && !batonBusy && " · paused"}
+                  {mode === "baton" && batonPlayback === "ended" && !batonBusy && " · ended"}
                 </>
               )}
               {status === "error" && "Error"}
@@ -338,7 +345,7 @@ export function Gestures() {
                     if (tab.id === "jam") void handleArmJam();
                     else if (tab.id === "compose") handleArmCompose();
                     else if (tab.id === "conduct") void handleArmConduct();
-                    else void handleArmBaton();
+                    else enterMode("baton");
                   }}
                 >
                   <Icon size={16} />
@@ -511,17 +518,17 @@ export function Gestures() {
               <div
                 className={
                   "gestures-section-badge" +
-                  (batonIsArmed ? " gestures-section-badge--live" : "") +
+                  (batonPlayback === "playing" ? " gestures-section-badge--live" : "") +
                   (batonLevels.beat ? " gestures-section-badge--flash" : "")
                 }
                 style={
-                  batonIsArmed
+                  batonPlayback === "playing"
                     ? { ["--beat-pulse" as string]: String(0.7 + (batonLevels.beat ? 0.35 : 0)) }
                     : undefined
                 }
               >
                 BATON
-                {batonIsArmed && (
+                {batonPlayback === "playing" && (
                   <span
                     className="gestures-beat-dot"
                     style={{ opacity: batonLevels.beat ? 1 : 0.35 }}
@@ -530,8 +537,8 @@ export function Gestures() {
               </div>
 
               <p className="gestures-coach">
-                Right hand = baton tempo/dynamics. Left hand height/openness =
-                bass / mid / treble (one hand still moves the meters).
+                Pick a score, then Play. Right hand = tempo/dynamics; left height/openness =
+                bass / mid / treble. Pause anytime — switching tracks reloads that score.
               </p>
 
               <div className="gestures-preset-row">
@@ -542,7 +549,7 @@ export function Gestures() {
                     className={
                       "gestures-preset-chip" + (scoreId === s.id ? " gestures-preset-chip--on" : "")
                     }
-                    disabled={batonBusy || batonIsArmed}
+                    disabled={batonBusy}
                     onClick={() => setScoreId(s.id)}
                   >
                     <strong>{s.label}</strong>
@@ -590,40 +597,67 @@ export function Gestures() {
                   </span>
                   <span
                     className={
-                      "gestures-audio__badge" + (batonIsArmed ? " gestures-audio__badge--on" : "")
+                      "gestures-audio__badge" +
+                      (batonPlayback === "playing" ? " gestures-audio__badge--on" : "")
                     }
                   >
-                    {batonBusy ? "loading" : batonIsArmed ? "playing" : "idle"}
+                    {batonBusy
+                      ? "loading"
+                      : batonPlayback === "playing"
+                        ? "playing"
+                        : batonPlayback === "paused"
+                          ? "paused"
+                          : batonPlayback === "ended"
+                            ? "ended"
+                            : "idle"}
                   </span>
                 </div>
                 <div className="gestures-audio__actions">
-                  {!batonIsArmed ? (
+                  {batonPlayback === "playing" ? (
                     <button
                       type="button"
                       className="btn-modern btn-primary"
-                      onClick={() => void handleArmBaton()}
-                      disabled={status !== "running" || batonBusy || !manifest}
+                      onClick={() => pauseBaton()}
+                      disabled={batonBusy}
                     >
-                      <Disc3 size={18} />
-                      {batonBusy ? "Loading score…" : "Start"}
+                      <Pause size={18} />
+                      Pause
                     </button>
                   ) : (
+                    <button
+                      type="button"
+                      className="btn-modern btn-primary"
+                      onClick={() => void handlePlayBaton()}
+                      disabled={status !== "running" || batonBusy || !manifest}
+                    >
+                      <Play size={18} />
+                      {batonBusy
+                        ? "Loading…"
+                        : batonPlayback === "ended"
+                          ? "Replay"
+                          : batonPlayback === "paused"
+                            ? "Resume"
+                            : "Play"}
+                    </button>
+                  )}
+                  {batonIsArmed && (
                     <button
                       type="button"
                       className="btn-modern btn-ghost"
                       onClick={() => {
                         disarmBaton();
-                        setMode("off");
                       }}
+                      disabled={batonBusy}
                     >
-                      <VolumeX size={18} />
+                      <Square size={18} />
                       Stop
                     </button>
                   )}
                 </div>
                 {batonError && <p className="gestures-error">{batonError}</p>}
                 <p className="gestures-muted" style={{ marginTop: "0.35rem" }}>
-                  MIDI from Mutopia (CC BY-SA 2.5). Hold a pencil if you like — we track the index tip.
+                  MIDI repertoire — Mutopia (CC BY-SA) plus film themes. Hold a pencil if you like —
+                  we track the index tip.
                 </p>
               </div>
             </>

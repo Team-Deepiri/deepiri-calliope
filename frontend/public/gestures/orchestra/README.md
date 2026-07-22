@@ -1,34 +1,37 @@
 # Orchestra MIDI — Gestures / Baton
 
-## Piece
+Baton plays **MIDI only** (`.mid`). Files are listed in `manifest.json`.
 
-**Sonata No. 14 “Moonlight”** (Op. 27, No. 2)  
-Ludwig van Beethoven (1770–1827)
+## Scores
 
-| File | Movement (typical Mutopia split) |
-|------|----------------------------------|
-| `moonlight1.mid` | I. Adagio sostenuto |
-| `moonlight2.mid` | II. Allegretto |
-| `moonlight3.mid` | III. Presto agitato |
+| File | Label | Notes |
+|------|--------|--------|
+| `moonlight1.mid` | Moonlight I | Mutopia — Beethoven Op. 27 No. 2 |
+| `moonlight2.mid` | Moonlight II | Mutopia |
+| `moonlight3.mid` | Moonlight III | Mutopia |
+| `cornfield-chase.mid` | Cornfield Chase | Interstellar — via Nonstop2k |
+| `time-inception.mid` | Time (Inception) | via Nonstop2k |
+| `mission-impossible.mid` | Mission Impossible | via SynthesiaManiac |
+| `star-wars.mid` | Star Wars | via SynthesiaManiac |
 
-**Default for Baton v0:** `moonlight1.mid`
+**Not wired:** `no-time-for-caution.mp3` — audio file; Baton cannot play MP3. Add a `.mid` version if you want it in the picker.
 
-## Source
+## Sources / attribution
 
-- Mutopia Project piece page: https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=276  
+### Moonlight (Mutopia)
+
+- Piece page: https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=276  
 - MIDI zip: https://www.mutopiaproject.org/ftp/BeethovenLv/O27/moonlight/moonlight-mids.zip  
-- Music ID: Mutopia-2007/02/11-276  
+- License: [CC BY-SA 2.5](https://creativecommons.org/licenses/by-sa/2.5/)  
 - Typeset / maintained by Stewart Holmes (LilyPond)
 
-## License
+### Film themes
 
-Creative Commons Attribution-ShareAlike 2.5  
-https://creativecommons.org/licenses/by-sa/2.5/
+- Interstellar / Inception MIDI: Nonstop2k  
+- Mission Impossible / Star Wars MIDI: SynthesiaManiac  
 
-When redistributing or shipping this app with these files, retain attribution to Mutopia / the maintainer as required by CC BY-SA 2.5.
+Redistribute only if your use complies with each source’s terms. Prefer Mutopia / clearly licensed MIDI when shipping broadly.
 
-## URLs (Vite dev)
+## URLs (Vite)
 
-- `/gestures/orchestra/moonlight1.mid`
-- `/gestures/orchestra/moonlight2.mid`
-- `/gestures/orchestra/moonlight3.mid`
+Files under `/gestures/orchestra/…` as listed in `manifest.json`.

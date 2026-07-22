@@ -19,7 +19,7 @@ const GROUPS: OrchestraGroupId[] = ["bass", "mid", "treble"];
 
 /**
  * Warpable MIDI performance clock + simple multi-group synth.
- * scoreTime advances as ∫ tempoRate dt.
+ * scoreTime advances as ∫ tempoRate dt while playing.
  */
 export class OrchestraEngine {
   private ctx: AudioContext | null = null;
@@ -30,12 +30,32 @@ export class OrchestraEngine {
   private scoreTime = 0;
   private lastPerf = 0;
   private tempoRate = 1;
-  private running = false;
+  private playing = false;
+  private paused = false;
+  private ended = false;
   private raf = 0;
   private activeVoices: Voice[] = [];
 
+  get isPlaying(): boolean {
+    return this.playing;
+  }
+
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
+  get isEnded(): boolean {
+    return this.ended;
+  }
+
+  /** Score is loaded (playing, paused, or ended). */
+  get isArmed(): boolean {
+    return this.score != null && this.ctx != null;
+  }
+
+  /** @deprecated use isPlaying — kept for call sites that meant “clock advancing”. */
   get isRunning(): boolean {
-    return this.running;
+    return this.playing;
   }
 
   get currentScoreTime(): number {
@@ -46,7 +66,7 @@ export class OrchestraEngine {
     return this.score?.duration ?? 0;
   }
 
-  async arm(score: OrchestraScore): Promise<void> {
+  async arm(score: OrchestraScore, autoplay = true): Promise<void> {
     this.disarm();
 
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -83,7 +103,51 @@ export class OrchestraEngine {
     this.scoreTime = 0;
     this.lastPerf = performance.now();
     this.tempoRate = 1;
-    this.running = true;
+    this.ended = false;
+    this.paused = !autoplay;
+    this.playing = autoplay;
+    if (autoplay) this.tick();
+  }
+
+  pause(): void {
+    if (!this.isArmed || !this.playing) return;
+    this.playing = false;
+    this.paused = true;
+    if (this.raf) {
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    }
+    this.silenceVoices();
+  }
+
+  resume(): void {
+    if (!this.isArmed || this.playing) return;
+    if (this.ended) {
+      this.restart();
+      return;
+    }
+    if (this.ctx?.state === "suspended") void this.ctx.resume();
+    this.paused = false;
+    this.playing = true;
+    this.lastPerf = performance.now();
+    this.tick();
+  }
+
+  /** Rewind to the start and play. */
+  restart(): void {
+    if (!this.isArmed) return;
+    this.silenceVoices();
+    this.noteIndex = 0;
+    this.scoreTime = 0;
+    this.ended = false;
+    this.paused = false;
+    this.playing = true;
+    this.lastPerf = performance.now();
+    if (this.raf) {
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    }
+    if (this.ctx?.state === "suspended") void this.ctx.resume();
     this.tick();
   }
 
@@ -103,15 +167,25 @@ export class OrchestraEngine {
     for (const id of GROUPS) {
       const g = this.groups.get(id);
       if (!g) continue;
-      // Square curve: low values nearly mute the bus so cues are obvious
       const raw = Math.max(0, Math.min(1, levels[id]));
       const shaped = raw * raw;
       g.gain.gain.setTargetAtTime(shaped, t, 0.05);
     }
   }
 
+  private silenceVoices(): void {
+    for (const v of this.activeVoices) {
+      try {
+        v.osc.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.activeVoices = [];
+  }
+
   private tick = () => {
-    if (!this.running || !this.ctx || !this.score) return;
+    if (!this.playing || !this.ctx || !this.score) return;
     const now = performance.now();
     const dt = (now - this.lastPerf) / 1000;
     this.lastPerf = now;
@@ -127,14 +201,16 @@ export class OrchestraEngine {
       this.playNote(n);
     }
 
-    // Prune finished voice refs
     const tAudio = this.ctx.currentTime;
     this.activeVoices = this.activeVoices.filter((v) => v.stopAt > tAudio);
 
     if (this.scoreTime < this.score.duration + 1.5) {
       this.raf = requestAnimationFrame(this.tick);
     } else {
-      this.running = false;
+      this.playing = false;
+      this.paused = false;
+      this.ended = true;
+      this.raf = 0;
     }
   };
 
@@ -165,19 +241,14 @@ export class OrchestraEngine {
   }
 
   disarm(): void {
-    this.running = false;
+    this.playing = false;
+    this.paused = false;
+    this.ended = false;
     if (this.raf) {
       cancelAnimationFrame(this.raf);
       this.raf = 0;
     }
-    for (const v of this.activeVoices) {
-      try {
-        v.osc.stop();
-      } catch {
-        /* ignore */
-      }
-    }
-    this.activeVoices = [];
+    this.silenceVoices();
     this.groups.clear();
     try {
       void this.ctx?.close();
