@@ -1,0 +1,31 @@
+{
+  "piece": {
+    "id": "moonlight-sonata",
+    "title": "Sonata No. 14 “Moonlight”",
+    "composer": "L. V. Beethoven",
+    "opus": "Op. 27, No. 2",
+    "sourceUrl": "https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=276",
+    "license": "CC BY-SA 2.5"
+  },
+  "defaultId": "moonlight-1",
+  "scores": [
+    {
+      "id": "moonlight-1",
+      "label": "I. Adagio sostenuto",
+      "file": "/gestures/orchestra/moonlight1.mid",
+      "bpmHint": 54
+    },
+    {
+      "id": "moonlight-2",
+      "label": "II. Allegretto",
+      "file": "/gestures/orchestra/moonlight2.mid",
+      "bpmHint": 76
+    },
+    {
+      "id": "moonlight-3",
+      "label": "III. Presto agitato",
+      "file": "/gestures/orchestra/moonlight3.mid",
+      "bpmHint": 160
+    }
+  ]
+}

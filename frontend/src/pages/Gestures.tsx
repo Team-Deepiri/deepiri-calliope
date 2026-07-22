@@ -10,6 +10,7 @@ import {
   Video,
   Wand2,
   Music2,
+  Disc3,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { CameraStage } from "../components/gestures/CameraStage";
@@ -17,18 +18,29 @@ import { useHandTracker } from "../gestures/useHandTracker";
 import { useGestureSynth } from "../gestures/useGestureSynth";
 import { useCompositionTriggers } from "../gestures/useCompositionTriggers";
 import { useConduct } from "../gestures/useConduct";
+import { useBatonOrchestra } from "../gestures/useBatonOrchestra";
 import { POSE_VOCAB } from "../gestures/detectPoses";
 import type { HandSignals, Landmark } from "../gestures/deriveSignals";
 import { signalsToAmp } from "../gestures/gestureSynth";
 import type { ConductSection } from "../gestures/conductMap";
 import "../styles/gestures.css";
 
-type GestureMode = "off" | "jam" | "compose" | "conduct";
+type GestureMode = "off" | "jam" | "compose" | "conduct" | "baton";
 
-function Meter({ label, value, accent }: { label: string; value: number; accent: string }) {
+function Meter({
+  label,
+  value,
+  accent,
+  spotlight = false,
+}: {
+  label: string;
+  value: number;
+  accent: string;
+  spotlight?: boolean;
+}) {
   const pct = Math.round(clamp01(value) * 100);
   return (
-    <div className="gestures-meter">
+    <div className={"gestures-meter" + (spotlight ? " gestures-meter--hot" : "")}>
       <div className="gestures-meter__row">
         <span className="gestures-meter__label">{label}</span>
         <span className="gestures-meter__value">{pct}</span>
@@ -110,6 +122,7 @@ export function Gestures() {
   const composeArmed = mode === "compose";
   const jamArmed = mode === "jam";
   const conductArmed = mode === "conduct";
+  const batonArmed = mode === "baton";
 
   const {
     onStereoHands: onComposeHands,
@@ -122,7 +135,7 @@ export function Gestures() {
     stop: stopComposition,
   } = useCompositionTriggers(composeArmed);
 
-  const instrumentMuted = composeBusy || composePlaying || conductArmed;
+  const instrumentMuted = composeBusy || composePlaying || conductArmed || batonArmed;
   const {
     armed: jamSoundArmed,
     error: audioError,
@@ -141,27 +154,47 @@ export function Gestures() {
     progress: conductProgress,
     section,
     levels,
+    driven,
+    beatPulse,
+    sectionFlash,
     error: conductError,
     arm: armConduct,
+    reload: reloadConduct,
     disarm: disarmConduct,
     onStereoFrame: onConductFrame,
     onStereoHands: onConductHands,
   } = useConduct(conductArmed);
 
+  const {
+    manifest,
+    scoreId,
+    setScoreId,
+    armed: batonIsArmed,
+    busy: batonBusy,
+    error: batonError,
+    levels: batonLevels,
+    arm: armBaton,
+    disarm: disarmBaton,
+    onStereoFrame: onBatonFrame,
+    onStereoHands: onBatonHands,
+  } = useBatonOrchestra(batonArmed);
+
   const onStereoHands = useCallback(
-    (left: Landmark[] | null, right: Landmark[] | null) => {
-      if (mode === "compose") onComposeHands(left, right);
-      else if (mode === "conduct") onConductHands(left, right);
+    (leftLm: Landmark[] | null, rightLm: Landmark[] | null) => {
+      if (mode === "compose") onComposeHands(leftLm, rightLm);
+      else if (mode === "conduct") onConductHands(leftLm, rightLm);
+      else if (mode === "baton") onBatonHands(leftLm, rightLm);
     },
-    [mode, onComposeHands, onConductHands],
+    [mode, onComposeHands, onConductHands, onBatonHands],
   );
 
   const onStereoFrame = useCallback(
-    (left: HandSignals, right: HandSignals) => {
-      if (mode === "jam") onJamFrame(left, right);
-      else if (mode === "conduct") onConductFrame(left, right);
+    (leftSig: HandSignals, rightSig: HandSignals) => {
+      if (mode === "jam") onJamFrame(leftSig, rightSig);
+      else if (mode === "conduct") onConductFrame(leftSig, rightSig);
+      else if (mode === "baton") onBatonFrame(leftSig, rightSig);
     },
-    [mode, onJamFrame, onConductFrame],
+    [mode, onJamFrame, onConductFrame, onBatonFrame],
   );
 
   const { status, error, left, right, fps, start, stop } = useHandTracker({
@@ -183,15 +216,17 @@ export function Gestures() {
       disarmJam();
       stopComposition();
       disarmConduct();
+      disarmBaton();
       setMode("off");
     }
-  }, [status, mode, disarmJam, stopComposition, disarmConduct]);
+  }, [status, mode, disarmJam, stopComposition, disarmConduct, disarmBaton]);
 
   function enterMode(next: GestureMode) {
     if (next === mode) return;
     disarmJam();
     stopComposition();
     disarmConduct();
+    disarmBaton();
     setMode(next);
   }
 
@@ -199,6 +234,7 @@ export function Gestures() {
     disarmJam();
     stopComposition();
     disarmConduct();
+    disarmBaton();
     setMode("off");
     stop();
   }
@@ -219,13 +255,20 @@ export function Gestures() {
     await armConduct();
   }
 
+  async function handleArmBaton() {
+    if (mode !== "baton") {
+      enterMode("baton");
+    }
+    await armBaton();
+  }
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <div className="gradient-strip" style={{ maxWidth: 200, marginBottom: "1rem" }} />
       <h1 className="section-title">Gestures</h1>
       <p className="lead mt-sm">
-        Two-hand performance surface. Pick a mode: <strong>Jam</strong> (live synth),{" "}
-        <strong>Compose</strong> (pose → clips), or <strong>Conduct</strong> (looped stems + faders).
+        Two-hand performance surface: <strong>Jam</strong>, <strong>Compose</strong>,{" "}
+        <strong>Conduct</strong>, or <strong>Baton</strong> (conduct Moonlight with a fingertip / pencil).
       </p>
 
       <div className="gestures-layout mt-lg">
@@ -260,6 +303,8 @@ export function Gestures() {
                   {mode === "compose" && composePlaying && !composeBusy && " · playing…"}
                   {mode === "conduct" && conductBusy && " · loading stems…"}
                   {mode === "conduct" && conductIsArmed && !conductBusy && ` · ${sectionLabel(section)}`}
+                  {mode === "baton" && batonBusy && " · loading score…"}
+                  {mode === "baton" && batonIsArmed && !batonBusy && ` · ${Math.round(batonLevels.tempoRate * 100)}% tempo`}
                 </>
               )}
               {status === "error" && "Error"}
@@ -275,6 +320,7 @@ export function Gestures() {
                 { id: "jam" as const, label: "Jam", icon: Volume2 },
                 { id: "compose" as const, label: "Compose", icon: Sparkles },
                 { id: "conduct" as const, label: "Conduct", icon: Music2 },
+                { id: "baton" as const, label: "Baton", icon: Disc3 },
               ] as const
             ).map((tab) => {
               const Icon = tab.icon;
@@ -291,7 +337,8 @@ export function Gestures() {
                     if (active) return;
                     if (tab.id === "jam") void handleArmJam();
                     else if (tab.id === "compose") handleArmCompose();
-                    else void handleArmConduct();
+                    else if (tab.id === "conduct") void handleArmConduct();
+                    else void handleArmBaton();
                   }}
                 >
                   <Icon size={16} />
@@ -394,13 +441,50 @@ export function Gestures() {
                 </li>
                 <li className="gestures-vocab__item">
                   <strong>Swipe right</strong>
-                  <span>Chorus / DROP</span>
-                  <small>Full energy</small>
+                  <span>Chorus toggle</span>
+                  <small>Verse ↔ chorus / DROP + energy</small>
                 </li>
                 <li className="gestures-vocab__item">
                   <strong>Swipe left</strong>
-                  <span>Break</span>
-                  <small>Drums drop out</small>
+                  <span>Break toggle</span>
+                  <small>Verse ↔ break (drums out)</small>
+                </li>
+              </ul>
+            </div>
+          )}
+          {mode === "baton" && (
+            <div className="gestures-vocab mt-lg">
+              <div className="gestures-signals-head">
+                <Disc3 size={18} />
+                <div>
+                  <div className="field-label" style={{ marginBottom: 0 }}>
+                    Baton vocabulary
+                  </div>
+                  <small className="gestures-muted">
+                    Wave a fingertip or pencil as the stick. Left hand balances the orchestra bands.
+                  </small>
+                </div>
+              </div>
+              <ul className="gestures-vocab__list">
+                <li className="gestures-vocab__item">
+                  <strong>Right tip beats</strong>
+                  <span>Tempo</span>
+                  <small>Faster strokes → faster score</small>
+                </li>
+                <li className="gestures-vocab__item">
+                  <strong>Stroke size</strong>
+                  <span>Dynamics</span>
+                  <small>Bigger gestures → louder</small>
+                </li>
+                <li className="gestures-vocab__item">
+                  <strong>Left openness</strong>
+                  <span>Mid / treble</span>
+                  <small>Open to bring upper voices in</small>
+                </li>
+                <li className="gestures-vocab__item">
+                  <strong>Left height</strong>
+                  <span>Bass ↔ treble</span>
+                  <small>Low hand favors bass</small>
                 </li>
               </ul>
             </div>
@@ -408,7 +492,141 @@ export function Gestures() {
         </div>
 
         <div className="glass-panel gestures-panel stack" style={{ padding: "1.25rem" }}>
-          {mode === "conduct" ? (
+          {mode === "baton" ? (
+            <>
+              <div className="gestures-signals-head">
+                <Disc3 size={18} />
+                <div>
+                  <div className="field-label" style={{ marginBottom: 0 }}>
+                    Baton orchestra
+                  </div>
+                  <small className="gestures-muted">
+                    {manifest
+                      ? `${manifest.piece.title} — ${manifest.piece.composer}`
+                      : "Loading repertoire…"}
+                  </small>
+                </div>
+              </div>
+
+              <div
+                className={
+                  "gestures-section-badge" +
+                  (batonIsArmed ? " gestures-section-badge--live" : "") +
+                  (batonLevels.beat ? " gestures-section-badge--flash" : "")
+                }
+                style={
+                  batonIsArmed
+                    ? { ["--beat-pulse" as string]: String(0.7 + (batonLevels.beat ? 0.35 : 0)) }
+                    : undefined
+                }
+              >
+                BATON
+                {batonIsArmed && (
+                  <span
+                    className="gestures-beat-dot"
+                    style={{ opacity: batonLevels.beat ? 1 : 0.35 }}
+                  />
+                )}
+              </div>
+
+              <p className="gestures-coach">
+                Wave the baton (or pencil) — left hand cues bass / mid / treble
+              </p>
+
+              <div className="gestures-preset-row">
+                {(manifest?.scores ?? []).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className={
+                      "gestures-preset-chip" + (scoreId === s.id ? " gestures-preset-chip--on" : "")
+                    }
+                    disabled={batonBusy || batonIsArmed}
+                    onClick={() => setScoreId(s.id)}
+                  >
+                    <strong>{s.label}</strong>
+                    <small>{s.bpmHint} BPM hint</small>
+                  </button>
+                ))}
+              </div>
+
+              <Meter label="Tempo rate" value={(batonLevels.tempoRate - 0.55) / 0.9} accent="#f472b6" />
+              <Meter label="Dynamics" value={batonLevels.dynamics} accent="var(--primary-500)" />
+              <Meter
+                label="Bass"
+                value={batonLevels.bass}
+                accent="#f97316"
+                spotlight={batonLevels.bass > 0.55}
+              />
+              <Meter
+                label="Mid"
+                value={batonLevels.mid}
+                accent="#34d399"
+                spotlight={batonLevels.mid > 0.55}
+              />
+              <Meter
+                label="Treble"
+                value={batonLevels.treble}
+                accent="#818cf8"
+                spotlight={batonLevels.treble > 0.55}
+              />
+              <Meter label="Progress" value={batonLevels.progress} accent="#94a3b8" />
+
+              <div className="gestures-baton-trail" aria-hidden>
+                <span
+                  className={"gestures-baton-tip" + (batonLevels.beat ? " gestures-baton-tip--beat" : "")}
+                  style={{
+                    left: `${(1 - batonLevels.tipX) * 100}%`,
+                    top: `${batonLevels.tipY * 100}%`,
+                  }}
+                />
+              </div>
+
+              <div className="gestures-audio" style={{ marginTop: "0.75rem" }}>
+                <div className="gestures-audio__head">
+                  <span className="field-label" style={{ marginBottom: 0 }}>
+                    Performance
+                  </span>
+                  <span
+                    className={
+                      "gestures-audio__badge" + (batonIsArmed ? " gestures-audio__badge--on" : "")
+                    }
+                  >
+                    {batonBusy ? "loading" : batonIsArmed ? "playing" : "idle"}
+                  </span>
+                </div>
+                <div className="gestures-audio__actions">
+                  {!batonIsArmed ? (
+                    <button
+                      type="button"
+                      className="btn-modern btn-primary"
+                      onClick={() => void handleArmBaton()}
+                      disabled={status !== "running" || batonBusy || !manifest}
+                    >
+                      <Disc3 size={18} />
+                      {batonBusy ? "Loading score…" : "Start"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-modern btn-ghost"
+                      onClick={() => {
+                        disarmBaton();
+                        setMode("off");
+                      }}
+                    >
+                      <VolumeX size={18} />
+                      Stop
+                    </button>
+                  )}
+                </div>
+                {batonError && <p className="gestures-error">{batonError}</p>}
+                <p className="gestures-muted" style={{ marginTop: "0.35rem" }}>
+                  MIDI from Mutopia (CC BY-SA 2.5). Hold a pencil if you like — we track the index tip.
+                </p>
+              </div>
+            </>
+          ) : mode === "conduct" ? (
             <>
               <div className="gestures-signals-head">
                 <Music2 size={18} />
@@ -426,11 +644,25 @@ export function Gestures() {
                 className={
                   "gestures-section-badge" +
                   (section === "chorus" ? " gestures-section-badge--chorus" : "") +
-                  (section === "break" ? " gestures-section-badge--break" : "")
+                  (section === "break" ? " gestures-section-badge--break" : "") +
+                  (conductIsArmed ? " gestures-section-badge--live" : "") +
+                  (sectionFlash ? " gestures-section-badge--flash" : "")
+                }
+                style={
+                  conductIsArmed
+                    ? { ["--beat-pulse" as string]: String(0.55 + beatPulse * 0.45) }
+                    : undefined
                 }
               >
                 {sectionLabel(section)}
+                {conductIsArmed && (
+                  <span className="gestures-beat-dot" style={{ opacity: 0.35 + beatPulse * 0.65 }} />
+                )}
               </div>
+
+              <p className="gestures-coach">
+                Swipe R chorus · Swipe L break · fists duck · raise / open to ride faders
+              </p>
 
               <div className="gestures-preset-row">
                 {presets.map((p) => (
@@ -450,14 +682,35 @@ export function Gestures() {
               </div>
 
               <Meter label="Master" value={levels.master} accent="var(--primary-500)" />
-              <Meter label="Drums" value={levels.drums} accent="#f97316" />
-              <Meter label="Chords" value={levels.chords} accent="#34d399" />
-              <Meter label="Melody" value={levels.melody} accent="#818cf8" />
+              <Meter
+                label="Drums"
+                value={levels.drums}
+                accent="#f97316"
+                spotlight={driven.drums}
+              />
+              <Meter
+                label="Chords"
+                value={levels.chords}
+                accent="#34d399"
+                spotlight={driven.chords}
+              />
+              <Meter
+                label="Melody"
+                value={levels.melody}
+                accent="#818cf8"
+                spotlight={driven.melody}
+              />
+              <Meter
+                label="Energy"
+                value={levels.energy}
+                accent="#f472b6"
+                spotlight={driven.energy}
+              />
 
               <div className="gestures-audio" style={{ marginTop: "0.75rem" }}>
                 <div className="gestures-audio__head">
                   <span className="field-label" style={{ marginBottom: 0 }}>
-                    {preset.label}
+                    {preset.label} · {preset.bpm} BPM
                   </span>
                   <span
                     className={
@@ -488,22 +741,34 @@ export function Gestures() {
                       {conductBusy ? "Loading stems…" : "Load & arm"}
                     </button>
                   ) : (
-                    <button
-                      type="button"
-                      className="btn-modern btn-ghost"
-                      onClick={() => {
-                        disarmConduct();
-                        setMode("off");
-                      }}
-                    >
-                      <VolumeX size={18} />
-                      Disarm
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="btn-modern btn-primary"
+                        onClick={() => void reloadConduct()}
+                        disabled={conductBusy || status !== "running"}
+                      >
+                        <Music2 size={18} />
+                        {conductBusy ? "Reloading…" : "Reload stems"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-modern btn-ghost"
+                        onClick={() => {
+                          disarmConduct();
+                          setMode("off");
+                        }}
+                      >
+                        <VolumeX size={18} />
+                        Disarm
+                      </button>
+                    </>
                   )}
                 </div>
                 {conductError && <p className="gestures-error">{conductError}</p>}
                 <p className="gestures-muted" style={{ marginTop: "0.35rem" }}>
-                  Fist ducks that hand&apos;s stems. Swipe for CHORUS or BREAK.
+                  4-bar loops. Chorus lifts an energy layer; break pulls drums. Reload regenerates the
+                  current preset without leaving Conduct.
                 </p>
               </div>
             </>
