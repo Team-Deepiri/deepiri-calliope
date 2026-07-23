@@ -32,16 +32,16 @@
       "bpmHint": 94
     },
     {
+      "id": "no-time-for-caution",
+      "label": "No Time for Caution",
+      "file": "/gestures/orchestra/no-time-for-caution.mid",
+      "bpmHint": 120
+    },
+    {
       "id": "time-inception",
       "label": "Time (Inception)",
       "file": "/gestures/orchestra/time-inception.mid",
       "bpmHint": 110
-    },
-    {
-      "id": "mission-impossible",
-      "label": "Mission Impossible",
-      "file": "/gestures/orchestra/mission-impossible.mid",
-      "bpmHint": 94
     },
     {
       "id": "star-wars",

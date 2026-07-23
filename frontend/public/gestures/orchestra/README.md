@@ -10,11 +10,15 @@ Baton plays **MIDI only** (`.mid`). Files are listed in `manifest.json`.
 | `moonlight2.mid` | Moonlight II | Mutopia |
 | `moonlight3.mid` | Moonlight III | Mutopia |
 | `cornfield-chase.mid` | Cornfield Chase | Interstellar — via Nonstop2k |
+| `no-time-for-caution.mid` | No Time for Caution | Interstellar — via Contrebombarde |
 | `time-inception.mid` | Time (Inception) | via Nonstop2k |
-| `mission-impossible.mid` | Mission Impossible | via SynthesiaManiac |
 | `star-wars.mid` | Star Wars | via SynthesiaManiac |
 
-**Not wired:** `no-time-for-caution.mp3` — audio file; Baton cannot play MP3. Add a `.mid` version if you want it in the picker.
+**Parked (not in picker):** `mission-impossible.mid` — dense drum/bass bed buries the melody with current playback.
+
+**Not wired:** none currently — all listed scores are MIDI.
+
+Baton maps GM programs to FluidR3 soundfonts (plus a sampled grand for piano and TR-808 for drums).
 
 ## Sources / attribution
 
@@ -28,7 +32,9 @@ Baton plays **MIDI only** (`.mid`). Files are listed in `manifest.json`.
 ### Film themes
 
 - Interstellar / Inception MIDI: Nonstop2k  
-- Mission Impossible / Star Wars MIDI: SynthesiaManiac  
+- No Time for Caution MIDI: Contrebombarde  
+- Star Wars MIDI: SynthesiaManiac  
+- Mission Impossible MIDI (parked): SynthesiaManiac  
 
 Redistribute only if your use complies with each source’s terms. Prefer Mutopia / clearly licensed MIDI when shipping broadly.
 

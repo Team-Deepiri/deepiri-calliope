@@ -72,6 +72,9 @@ export function useBatonOrchestra(enabled: boolean) {
   const [playback, setPlayback] = useState<BatonPlayback>("idle");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [hasTake, setHasTake] = useState(false);
+  const lastTakeRef = useRef<Blob | null>(null);
   const [levels, setLevels] = useState<BatonLevels>({
     tempoRate: 1,
     dynamics: 0.55,
@@ -109,14 +112,35 @@ export function useBatonOrchestra(enabled: boolean) {
     };
   }, [enabled]);
 
-  const disarm = useCallback(() => {
-    engineRef.current.disarm();
+  const stop = useCallback(async () => {
+    const engine = engineRef.current;
+    if (engine.isCapturing) {
+      const blob = await engine.finishCapture();
+      if (blob && blob.size > 0) {
+        lastTakeRef.current = blob;
+        setHasTake(true);
+      }
+    }
+    engine.stopPerformance();
     batonRef.current.reset();
     scoreRef.current = null;
     armedRef.current = false;
     setArmed(false);
     setPlayback("idle");
     setBusy(false);
+  }, []);
+
+  const disarm = useCallback(() => {
+    void engineRef.current.finishCapture();
+    engineRef.current.disarm();
+    batonRef.current.reset();
+    scoreRef.current = null;
+    lastTakeRef.current = null;
+    armedRef.current = false;
+    setArmed(false);
+    setPlayback("idle");
+    setBusy(false);
+    setHasTake(false);
   }, []);
 
   useEffect(() => {
@@ -181,13 +205,13 @@ export function useBatonOrchestra(enabled: boolean) {
           progress: 0,
         }));
       } catch (e) {
-        disarm();
+        void stop();
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setBusy(false);
       }
     },
-    [manifest, disarm],
+    [manifest, stop],
   );
 
   const play = useCallback(async () => {
@@ -210,6 +234,56 @@ export function useBatonOrchestra(enabled: boolean) {
     if (engineRef.current.isPlaying) pause();
     else await play();
   }, [pause, play]);
+
+  const exportTakeToStudio = useCallback(async (): Promise<{
+    sessionId: string;
+    recordingId: string;
+    name: string;
+    durationSec: number;
+    scoreLabel?: string;
+  } | null> => {
+    setError(null);
+    setExportBusy(true);
+    try {
+      const engine = engineRef.current;
+      if (engine.isPlaying) engine.pause();
+
+      let blob = lastTakeRef.current;
+      if (engine.isCapturing) {
+        const fresh = await engine.finishCapture();
+        if (fresh && fresh.size > 0) {
+          blob = fresh;
+          lastTakeRef.current = fresh;
+          setHasTake(true);
+        }
+      }
+      if (!blob || blob.size === 0) {
+        throw new Error("No performance take yet — Play a score first, then Send to Studio.");
+      }
+
+      const { encodeBlobToWav } = await import("../audio/wavEncode");
+      const { createRecordingSession, uploadRecordingFile } = await import("../api/client");
+      const wav = await encodeBlobToWav(blob);
+      const scoreLabel =
+        manifest?.scores.find((s) => s.id === scoreId)?.label ?? scoreId;
+      const name = `Baton — ${scoreLabel}.wav`;
+      const session = await createRecordingSession(`Gestures ${new Date().toLocaleTimeString()}`);
+      const file = new File([wav], name, { type: "audio/wav" });
+      const result = await uploadRecordingFile(session.id, file, "audio");
+      return {
+        sessionId: session.id,
+        recordingId: result.recording_id,
+        name,
+        durationSec: result.duration_sec,
+        scoreLabel,
+      };
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return null;
+    } finally {
+      setExportBusy(false);
+    }
+  }, [manifest, scoreId]);
 
   /** Select a track; if already in a session, load it and keep playing / start paused matching prior state. */
   const selectScore = useCallback(
@@ -295,6 +369,10 @@ export function useBatonOrchestra(enabled: boolean) {
     play,
     pause,
     togglePlayPause,
+    stop,
+    exportTakeToStudio,
+    hasTake,
+    exportBusy,
     /** @deprecated prefer play() */
     arm: play,
     disarm,

@@ -67,7 +67,7 @@ export function Home() {
         </Link>
         <Link to="/gestures" className="home-v2__card">
           <span className="home-v2__card-label">Gestures</span>
-          <span className="home-v2__card-desc">Hand-driven performance</span>
+          <span className="home-v2__card-desc">Conduct MIDI with a baton</span>
         </Link>
         <Link to="/pipeline" className="home-v2__card">
           <span className="home-v2__card-label">Pipeline</span>
