@@ -1,0 +1,53 @@
+{
+  "piece": {
+    "id": "baton-repertoire",
+    "title": "Baton repertoire",
+    "composer": "select a score below",
+    "license": "Mixed — see README"
+  },
+  "defaultId": "moonlight-1",
+  "scores": [
+    {
+      "id": "moonlight-1",
+      "label": "Moonlight I",
+      "file": "/gestures/orchestra/moonlight1.mid",
+      "bpmHint": 54
+    },
+    {
+      "id": "moonlight-2",
+      "label": "Moonlight II",
+      "file": "/gestures/orchestra/moonlight2.mid",
+      "bpmHint": 76
+    },
+    {
+      "id": "moonlight-3",
+      "label": "Moonlight III",
+      "file": "/gestures/orchestra/moonlight3.mid",
+      "bpmHint": 160
+    },
+    {
+      "id": "cornfield-chase",
+      "label": "Cornfield Chase",
+      "file": "/gestures/orchestra/cornfield-chase.mid",
+      "bpmHint": 94
+    },
+    {
+      "id": "no-time-for-caution",
+      "label": "No Time for Caution",
+      "file": "/gestures/orchestra/no-time-for-caution.mid",
+      "bpmHint": 120
+    },
+    {
+      "id": "time-inception",
+      "label": "Time (Inception)",
+      "file": "/gestures/orchestra/time-inception.mid",
+      "bpmHint": 110
+    },
+    {
+      "id": "star-wars",
+      "label": "Star Wars",
+      "file": "/gestures/orchestra/star-wars.mid",
+      "bpmHint": 103
+    }
+  ]
+}
