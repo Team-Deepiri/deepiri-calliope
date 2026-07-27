@@ -109,8 +109,12 @@ export async function generatePlan(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(180_000),
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) {
+    const detail = await r.text();
+    throw new Error(detail || `Generate failed (${r.status})`);
+  }
   return r.json() as Promise<{ model: string; response: string; provider: string; depth: GenerateDepth }>;
 }
 

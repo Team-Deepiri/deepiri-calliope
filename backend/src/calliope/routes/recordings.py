@@ -126,9 +126,22 @@ async def upload_recording(
     
     try:
         info = get_audio_info(file_path)
-        duration = info["duration_sec"]
+        duration = float(info["duration_sec"])
+        sample_rate = int(info.get("sample_rate", session["sample_rate"]))
+        channels = int(info.get("channels", session["channels"]))
     except Exception:
+        info = {}
         duration = 0.0
+        sample_rate = session["sample_rate"]
+        channels = session["channels"]
+        # Fallback duration from WAV header / raw size when soundfile fails
+        try:
+            samples, sr = read_audio_file(file_path, mono=True)
+            duration = float(len(samples) / max(sr, 1))
+            sample_rate = sr
+            channels = 1
+        except Exception:
+            pass
     
     recording_meta = {
         "id": recording_id,
@@ -150,8 +163,8 @@ async def upload_recording(
         session_id=session_id,
         filename=filename,
         duration_sec=duration,
-        sample_rate=info.get("sample_rate", session["sample_rate"]),
-        channels=info.get("channels", session["channels"]),
+        sample_rate=sample_rate,
+        channels=channels,
     )
 
 
