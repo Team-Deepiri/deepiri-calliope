@@ -55,6 +55,9 @@ export function Gestures() {
     busy: batonBusy,
     error: batonError,
     levels: batonLevels,
+    conductMode,
+    setConductMode,
+    finalReport,
     play: playBaton,
     pause: pauseBaton,
     stop: stopBaton,
@@ -82,6 +85,7 @@ export function Gestures() {
   const handCount = (left.detected ? 1 : 0) + (right.detected ? 1 : 0);
   const cameraReady = status === "running";
   const canSendTake = hasTake || batonIsArmed || batonPlayback === "ended" || batonPlayback === "paused";
+  const grade = finalReport ?? batonLevels.grade;
 
   useEffect(() => {
     if (status !== "running") disarmBaton();
@@ -103,13 +107,18 @@ export function Gestures() {
     navigate("/studio");
   }
 
+  const coachText =
+    conductMode === "pattern"
+      ? "Pattern: the glowing node follows the song’s 4/4 beat — hit each one in time (down → left → right → up). Gesture size = dynamics. Left hand = bass / mid / treble."
+      : "Free tempo: stroke rate sets tempo; stroke size sets dynamics. Left hand = bass / mid / treble.";
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <div className="gradient-strip" style={{ maxWidth: 200, marginBottom: "1rem" }} />
       <h1 className="section-title">Gestures</h1>
       <p className="lead mt-sm">
-        Conduct a MIDI score with your hands — wave a fingertip or pencil as the baton, shape bass /
-        mid / treble with the other hand.
+        Conduct a MIDI score by tracing a beat pattern with your fingertip — right tip drives the
+        figure, left hand shapes bass / mid / treble.
       </p>
 
       <div className="gestures-layout mt-lg">
@@ -164,31 +173,60 @@ export function Gestures() {
                   Baton vocabulary
                 </div>
                 <small className="gestures-muted">
-                  Wave a fingertip or pencil as the stick. Left hand balances the orchestra bands.
+                  {conductMode === "pattern"
+                    ? "Point with your index tip and hit the glowing node when the song’s beat lands. Bigger patterns = louder."
+                    : "Wave your index tip as the stick. Left hand balances the orchestra bands."}
                 </small>
               </div>
             </div>
             <ul className="gestures-vocab__list">
-              <li className="gestures-vocab__item">
-                <strong>Right tip beats</strong>
-                <span>Tempo</span>
-                <small>Faster strokes → faster score</small>
-              </li>
-              <li className="gestures-vocab__item">
-                <strong>Stroke size</strong>
-                <span>Dynamics</span>
-                <small>Bigger gestures → louder</small>
-              </li>
-              <li className="gestures-vocab__item">
-                <strong>Left openness</strong>
-                <span>Mid / treble</span>
-                <small>Open to bring upper voices in</small>
-              </li>
-              <li className="gestures-vocab__item">
-                <strong>Left height</strong>
-                <span>Bass ↔ treble</span>
-                <small>Low hand favors bass</small>
-              </li>
+              {conductMode === "pattern" ? (
+                <>
+                  <li className="gestures-vocab__item">
+                    <strong>4/4 figure</strong>
+                    <span>Drive the score</span>
+                    <small>Down → left → right → up</small>
+                  </li>
+                  <li className="gestures-vocab__item">
+                    <strong>Pattern size</strong>
+                    <span>Dynamics</span>
+                    <small>Bigger gestures → louder</small>
+                  </li>
+                  <li className="gestures-vocab__item">
+                    <strong>Left openness</strong>
+                    <span>Mid / treble</span>
+                    <small>Open to bring upper voices in</small>
+                  </li>
+                  <li className="gestures-vocab__item">
+                    <strong>Left height</strong>
+                    <span>Bass ↔ treble</span>
+                    <small>Low hand favors bass</small>
+                  </li>
+                </>
+              ) : (
+                <>
+                  <li className="gestures-vocab__item">
+                    <strong>Right tip beats</strong>
+                    <span>Tempo</span>
+                    <small>Faster strokes → faster score</small>
+                  </li>
+                  <li className="gestures-vocab__item">
+                    <strong>Stroke size</strong>
+                    <span>Dynamics</span>
+                    <small>Bigger gestures → louder</small>
+                  </li>
+                  <li className="gestures-vocab__item">
+                    <strong>Left openness</strong>
+                    <span>Mid / treble</span>
+                    <small>Open to bring upper voices in</small>
+                  </li>
+                  <li className="gestures-vocab__item">
+                    <strong>Left height</strong>
+                    <span>Bass ↔ treble</span>
+                    <small>Low hand favors bass</small>
+                  </li>
+                </>
+              )}
             </ul>
           </div>
         </div>
@@ -206,22 +244,87 @@ export function Gestures() {
                   : "Loading repertoire…"}
               </small>
             </div>
+            {conductMode === "pattern" && (batonIsArmed || grade.score > 0) && (
+              <div
+                className={
+                  "gestures-grade-badge" + (grade.frozen ? " gestures-grade-badge--final" : "")
+                }
+                title={grade.coach}
+              >
+                <span className="gestures-grade-badge__letter">{grade.letter}</span>
+                <span className="gestures-grade-badge__score">{grade.score}</span>
+              </div>
+            )}
           </div>
 
           <div
             className={
               "gestures-baton-trail" +
-              (batonPlayback === "playing" ? " gestures-baton-trail--live" : "")
+              (conductMode === "pattern" ? " gestures-baton-trail--pattern" : "") +
+              (batonPlayback === "playing" ? " gestures-baton-trail--live" : "") +
+              (batonLevels.pulse || batonLevels.beat ? " gestures-baton-trail--pulse" : "")
             }
             aria-hidden
           >
+            {conductMode === "pattern" &&
+              batonLevels.targets.map((t) => (
+                <span
+                  key={t.beat}
+                  className={
+                    "gestures-pattern-node" +
+                    (t.beat === batonLevels.nextBeat ? " gestures-pattern-node--next" : "") +
+                    (t.beat < batonLevels.nextBeat ? " gestures-pattern-node--done" : "") +
+                    (t.beat === batonLevels.nextBeat && batonLevels.pulse
+                      ? " gestures-pattern-node--ictus"
+                      : "")
+                  }
+                  style={
+                    t.beat === batonLevels.nextBeat
+                      ? {
+                          left: `${(1 - t.x) * 100}%`,
+                          top: `${t.y * 100}%`,
+                          // Brighten as we approach the musical ictus (phase → 0)
+                          opacity: 0.55 + (1 - batonLevels.beatPhase) * 0.45,
+                        }
+                      : {
+                          left: `${(1 - t.x) * 100}%`,
+                          top: `${t.y * 100}%`,
+                        }
+                  }
+                >
+                  {t.label}
+                </span>
+              ))}
             <span
-              className={"gestures-baton-tip" + (batonLevels.beat ? " gestures-baton-tip--beat" : "")}
+              className={
+                "gestures-baton-tip" + (batonLevels.beat ? " gestures-baton-tip--beat" : "")
+              }
               style={{
                 left: `${(1 - batonLevels.tipX) * 100}%`,
                 top: `${batonLevels.tipY * 100}%`,
               }}
             />
+          </div>
+
+          <div className="gestures-mode-row" role="group" aria-label="Conduct mode">
+            <button
+              type="button"
+              className={
+                "gestures-mode-chip" + (conductMode === "pattern" ? " gestures-mode-chip--on" : "")
+              }
+              onClick={() => setConductMode("pattern")}
+            >
+              Pattern
+            </button>
+            <button
+              type="button"
+              className={
+                "gestures-mode-chip" + (conductMode === "free" ? " gestures-mode-chip--on" : "")
+              }
+              onClick={() => setConductMode("free")}
+            >
+              Free tempo
+            </button>
           </div>
 
           <div className="gestures-transport">
@@ -295,10 +398,22 @@ export function Gestures() {
 
           {batonError && <p className="gestures-error">{batonError}</p>}
 
-          <p className="gestures-coach">
-            Start the camera, pick a score, then Play. Right hand = tempo/dynamics; left
-            height/openness = bass / mid / treble.
-          </p>
+          {(batonPlayback === "ended" || (finalReport && finalReport.frozen)) &&
+            conductMode === "pattern" &&
+            finalReport && (
+              <div className="gestures-final-card">
+                <div className="gestures-final-card__head">
+                  <span className="gestures-final-card__letter">{finalReport.letter}</span>
+                  <div>
+                    <strong>Conducting score</strong>
+                    <p>{finalReport.score} / 100</p>
+                  </div>
+                </div>
+                <p className="gestures-final-card__coach">{finalReport.coach}</p>
+              </div>
+            )}
+
+          <p className="gestures-coach">{coachText}</p>
 
           {!cameraReady && (
             <p className="gestures-muted" style={{ marginTop: 0 }}>
@@ -324,8 +439,25 @@ export function Gestures() {
             ))}
           </div>
 
-          <Meter label="Tempo rate" value={(batonLevels.tempoRate - 0.55) / 0.9} accent="#f472b6" />
-          <Meter label="Dynamics" value={batonLevels.dynamics} accent="var(--primary-500)" />
+          {conductMode === "pattern" ? (
+            <>
+              <Meter label="Grade" value={grade.score / 100} accent="#fbbf24" />
+              <Meter label="Timing" value={grade.breakdown.timing} accent="#fde68a" />
+              <Meter label="Accuracy" value={grade.breakdown.accuracy} accent="#f472b6" />
+              <Meter label="Continuity" value={grade.breakdown.continuity} accent="#34d399" />
+              <Meter label="Dynamics" value={batonLevels.dynamics} accent="var(--primary-500)" />
+            </>
+          ) : (
+            <>
+              <Meter label="Phrase" value={batonLevels.phrase} accent="#f472b6" />
+              <Meter label="Dynamics" value={batonLevels.dynamics} accent="var(--primary-500)" />
+              <Meter
+                label="Tempo rate"
+                value={(batonLevels.tempoRate - 0.55) / 0.9}
+                accent="#f472b6"
+              />
+            </>
+          )}
           <Meter
             label="Bass"
             value={batonLevels.bass}

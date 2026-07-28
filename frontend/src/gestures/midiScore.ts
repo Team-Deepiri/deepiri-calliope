@@ -25,6 +25,8 @@ export type OrchestraScore = {
   notes: ScoreNote[];
   /** Unique voices required to perform this score. */
   voices: OrchestraVoiceId[];
+  /** Extra master gain for quiet MIDI exports (1 = default). */
+  gainScale: number;
 };
 
 export type OrchestraManifest = {
@@ -42,6 +44,10 @@ export type OrchestraManifest = {
     label: string;
     file: string;
     bpmHint: number;
+    /** Stretch MIDI times (Online Sequencer exports are often too fast). */
+    timeScale?: number;
+    /** Boost playback level for quiet scores. */
+    gainScale?: number;
   }>;
 };
 
@@ -122,6 +128,8 @@ export async function loadOrchestraScore(
   if (!res.ok) throw new Error(`Failed to load MIDI ${entry.file} (${res.status})`);
   const data = await res.arrayBuffer();
   const midi = new Midi(data);
+  const timeScale = entry.timeScale && entry.timeScale > 0 ? entry.timeScale : 1;
+  const gainScale = entry.gainScale && entry.gainScale > 0 ? entry.gainScale : 1;
 
   const notes: ScoreNote[] = [];
   const voiceSet = new Set<OrchestraVoiceId>();
@@ -132,8 +140,8 @@ export async function loadOrchestraScore(
     voiceSet.add(voice);
     for (const n of track.notes) {
       notes.push({
-        t: n.time,
-        dur: Math.max(0.05, n.duration),
+        t: n.time * timeScale,
+        dur: Math.max(0.05, n.duration * timeScale),
         midi: n.midi,
         vel: n.velocity,
         group: groupForMidi(n.midi),
@@ -143,10 +151,9 @@ export async function loadOrchestraScore(
   }
   notes.sort((a, b) => a.t - b.t || a.midi - b.midi);
 
-  const duration = Math.max(
-    midi.duration,
-    notes.length ? notes[notes.length - 1].t + notes[notes.length - 1].dur : 0,
-  );
+  const duration = notes.length
+    ? notes[notes.length - 1].t + notes[notes.length - 1].dur
+    : midi.duration * timeScale;
 
   return {
     id: entry.id,
@@ -156,5 +163,6 @@ export async function loadOrchestraScore(
     duration,
     notes,
     voices: [...voiceSet],
+    gainScale,
   };
 }
