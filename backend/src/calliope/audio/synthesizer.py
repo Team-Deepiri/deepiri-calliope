@@ -225,16 +225,31 @@ class Synthesizer:
     def process_samples(self, samples: np.ndarray) -> np.ndarray:
         from scipy.signal import butter, lfilter
 
+        if samples.size == 0:
+            return samples
+
         nyq = self.sr / 2
-        cutoff_normalized = min(self.filter_config.cutoff_freq / nyq, 0.99)
-        
-        b, a = butter(4, cutoff_normalized, btype=self.filter_config.filter_type)
+        cutoff_normalized = float(np.clip(self.filter_config.cutoff_freq / nyq, 0.01, 0.99))
+        ftype = self.filter_config.filter_type
+
+        if ftype in ("bandpass", "bandstop"):
+            lo = max(cutoff_normalized * 0.7, 0.01)
+            hi = min(cutoff_normalized * 1.3, 0.99)
+            if hi <= lo:
+                hi = min(lo + 0.05, 0.99)
+            b, a = butter(4, [lo, hi], btype=ftype)
+        else:
+            b, a = butter(4, cutoff_normalized, btype=ftype)
 
         filtered = lfilter(b, a, samples)
 
         if self.filter_config.resonance > 0:
             q = 1 / (self.filter_config.resonance + 0.1)
-            b_res, a_res = butter(2, cutoff_normalized, btype="bandpass")
+            lo = max(cutoff_normalized * 0.85, 0.01)
+            hi = min(cutoff_normalized * 1.15, 0.99)
+            if hi <= lo:
+                hi = min(lo + 0.05, 0.99)
+            b_res, a_res = butter(2, [lo, hi], btype="bandpass")
             resonance = lfilter(b_res, a_res, samples) * self.filter_config.resonance * q
             filtered = filtered + resonance
 
@@ -373,22 +388,27 @@ def generate_sequence(
     notes: list[tuple[int, float, float]],
     sr: int = 48000,
 ) -> np.ndarray:
-    """Generate a sequence of notes."""
-    total_duration = max(end for _, _, end in notes) + 1.0
-    output = np.zeros(int(total_duration * sr))
-    
+    """Generate a sequence of notes. Each note is (midi, start_sec, duration_sec)."""
+    if not notes:
+        return np.zeros(sr, dtype=np.float64)
+
+    total_duration = max(start + duration for _, start, duration in notes) + 0.5
+    output = np.zeros(int(total_duration * sr), dtype=np.float64)
+
     for midi_note, start, duration in notes:
-        samples = generate_synth_note(preset_name, midi_note, duration, sr=sr)
+        samples = generate_synth_note(preset_name, midi_note, max(duration, 1e-3), sr=sr)
         start_sample = int(start * sr)
         end_sample = start_sample + len(samples)
-        
+
+        if start_sample >= len(output):
+            continue
         if end_sample <= len(output):
             output[start_sample:end_sample] += samples
         else:
-            output[start_sample:] += samples[:len(output) - start_sample]
-    
-    peak = np.max(np.abs(output))
-    if peak > 1.0:
-        output = output / peak * 0.95
-    
+            output[start_sample:] += samples[: len(output) - start_sample]
+
+    peak = float(np.max(np.abs(output)))
+    if peak > 1e-9:
+        output = output / peak * 0.9
+
     return output

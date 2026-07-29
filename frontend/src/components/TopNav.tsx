@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
-import { Activity, Cpu, Home, Sparkles, Clock, Music } from "lucide-react";
+import { Activity, Cpu, Hand, Home, Sparkles, Clock, Music } from "lucide-react";
 import { DeepiriLogo } from "./DeepiriLogo";
 import { getRecentSessions } from "../api/client";
 
@@ -44,6 +44,10 @@ export function TopNav() {
         <NavLink className={({ isActive }) => "nav-link" + (isActive ? " nav-link--active" : "")} to="/studio">
           <Sparkles size={16} />
           Studio
+        </NavLink>
+        <NavLink className={({ isActive }) => "nav-link" + (isActive ? " nav-link--active" : "")} to="/gestures">
+          <Hand size={16} />
+          Gestures
         </NavLink>
         <NavLink className={({ isActive }) => "nav-link" + (isActive ? " nav-link--active" : "")} to="/pipeline">
           <Cpu size={16} />

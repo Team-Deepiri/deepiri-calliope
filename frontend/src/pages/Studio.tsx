@@ -17,6 +17,7 @@ import { TimelineView, type TimelineClip } from "../components/studio/TimelineVi
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
 import { barsFromDuration, StudioEngine, type EngineClip } from "../audio/studioEngine";
+import { takeGesturesStudioImport } from "../gestures/studioHandoff";
 import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
 import type { PluginInstance, RecordingFile } from "../types/audio";
 
@@ -207,6 +208,32 @@ export function Studio() {
     },
     [],
   );
+
+  // Gestures → Studio: place the conducted take on an audio track at bar 1
+  useEffect(() => {
+    const incoming = takeGesturesStudioImport();
+    if (!incoming) return;
+
+    const audioTrack =
+      tracksRef.current.find((t) => t.type === "lead") ??
+      tracksRef.current.find((t) => t.type === "audio") ??
+      tracksRef.current[2] ??
+      tracksRef.current[0];
+    if (!audioTrack) return;
+
+    const file: RecordingFile = {
+      id: incoming.recordingId,
+      filename: incoming.name,
+      original_name: incoming.name,
+      format: "wav",
+      duration_sec: incoming.durationSec,
+      track_type: "audio",
+      uploaded_at: new Date().toISOString(),
+    };
+    placeClipFromFile(file, incoming.sessionId, audioTrack.id, 0, incoming.durationSec);
+    setSelectedTrackId(audioTrack.id);
+    setPlayHint(`Imported from Gestures: ${incoming.scoreLabel ?? incoming.name}`);
+  }, [placeClipFromFile]);
 
   const onRecordingComplete = (file: RecordingFile, sessionId: string, durationHint?: number) => {
     const trackId = selectedTrackId || vocalTrack?.id || "4";
