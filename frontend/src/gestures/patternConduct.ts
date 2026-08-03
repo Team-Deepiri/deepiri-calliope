@@ -33,16 +33,18 @@ export type PatternConductState = {
   sync: number;
   phrase: number;
   beat: boolean;
-  /** True on musical downbeat crossings (score pulse). */
   pulse: boolean;
-  /** 0–1 phase within the current musical beat. */
   beatPhase: number;
+  measurePhase: number;
+  guideX: number;
+  guideY: number;
   tipX: number;
   tipY: number;
   active: boolean;
-  /** Beat the score is on now (1–4) — follow this node. */
   nextBeat: PatternBeat;
   targets: PatternTarget[];
+  /** Active path edges for this measure (variable cycle). */
+  pathEdges: Array<[PatternBeat, PatternBeat]>;
   grade: ConductGrade;
 };
 
@@ -55,19 +57,16 @@ export type PatternUpdateOpts = {
 };
 
 const INDEX_TIP = 8;
-/** Moderate disks — ease comes from predictive tip, not huge targets. */
-const HIT_RADIUS = 0.17;
+const HIT_RADIUS = 0.16;
 const HIT_COOLDOWN_MS = 130;
-/** Mild look-ahead for hits only (display stays smoothed). */
 const TIP_LEAD_SEC = 0.065;
 const TIP_LEAD_MAX = 0.038;
-/** Adaptive display smooth: low speed → steadier; high speed → tracks tight. */
 const TIP_SMOOTH_STILL = 0.28;
 const TIP_SMOOTH_MOVE = 0.72;
-const TIP_SPEED_REF = 1.1; // normalized units / sec ≈ “moving”
+const TIP_SPEED_REF = 1.1;
 const VEL_SMOOTH = 0.28;
 
-/** Classic 4/4 figure in landmark space (mirrored on screen via 1−x). */
+/** Fixed ictus points in landmark space (mirrored on screen via 1−x). */
 export const PATTERN_4_4: PatternTarget[] = [
   { beat: 1, x: 0.5, y: 0.78, label: "1" },
   { beat: 2, x: 0.74, y: 0.52, label: "2" },
@@ -75,8 +74,85 @@ export const PATTERN_4_4: PatternTarget[] = [
   { beat: 4, x: 0.5, y: 0.22, label: "4" },
 ];
 
+/**
+ * Variable conducting cycles — waypoints stay fixed, but the guide route
+ * through them changes each measure so the pattern isn't one locked loop.
+ * Each path has 5 nodes (4 segments) so one measure maps evenly to 4 beats.
+ */
+const CYCLE_PATHS: PatternBeat[][] = [
+  [1, 2, 3, 4, 1], // classic
+  [1, 2, 4, 3, 1], // diamond
+  [1, 3, 2, 4, 1], // mirror cross
+  [1, 4, 3, 2, 1], // reverse diamond
+  [1, 3, 4, 2, 1], // right-first
+  [1, 4, 2, 3, 1], // up then left-cross
+];
+
+/** All unique edges among the four ictus points (faint mesh). */
+export const FIGURE_EDGES: Array<[PatternBeat, PatternBeat]> = [
+  [1, 2],
+  [1, 3],
+  [1, 4],
+  [2, 3],
+  [2, 4],
+  [3, 4],
+];
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
+}
+
+function finiteOr(v: number, fallback: number): number {
+  return Number.isFinite(v) ? v : fallback;
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function pathForMeasure(measureIndex: number): PatternBeat[] {
+  const i = ((measureIndex % CYCLE_PATHS.length) + CYCLE_PATHS.length) % CYCLE_PATHS.length;
+  return CYCLE_PATHS[i];
+}
+
+function edgesFromPath(order: PatternBeat[]): Array<[PatternBeat, PatternBeat]> {
+  const edges: Array<[PatternBeat, PatternBeat]> = [];
+  for (let i = 0; i < order.length - 1; i++) {
+    const a = order[i];
+    const b = order[i + 1];
+    if (a !== b) edges.push([a, b]);
+  }
+  return edges;
+}
+
+function coordsForPath(order: PatternBeat[]): Array<{ x: number; y: number }> {
+  return order.map((b) => {
+    const t = PATTERN_4_4[b - 1];
+    return { x: t.x, y: t.y };
+  });
+}
+
+/** Interpolate along an explicit waypoint path; measurePhase is 0–1. */
+export function pointOnPath(
+  measurePhase: number,
+  path: Array<{ x: number; y: number }>,
+): { x: number; y: number } {
+  if (path.length < 2) return { x: 0.5, y: 0.78 };
+  const p = finiteOr(((measurePhase % 1) + 1) % 1, 0);
+  const segs = path.length - 1;
+  const f = p * segs;
+  const i = Math.min(segs - 1, Math.max(0, Math.floor(f)));
+  const t = f - i;
+  const a = path[i];
+  const b = path[i + 1];
+  return {
+    x: finiteOr(lerp(a.x, b.x, t), 0.5),
+    y: finiteOr(lerp(a.y, b.y, t), 0.78),
+  };
+}
+
+export function pointOnFigure(measurePhase: number, measureIndex = 0): { x: number; y: number } {
+  return pointOnPath(measurePhase, coordsForPath(pathForMeasure(measureIndex)));
 }
 
 function letterFromScore(score: number): string {
@@ -89,10 +165,10 @@ function letterFromScore(score: number): string {
 
 function coachFromBreakdown(b: ConductGradeBreakdown, phrase: number): string {
   const entries: Array<[keyof ConductGradeBreakdown, number, string]> = [
-    ["timing", b.timing, "Watch the beat — intervals are uneven or rushed."],
-    ["accuracy", b.accuracy, "Aim closer to the glowing beat nodes."],
-    ["continuity", b.continuity, "Keep the pattern going — long gaps stall the orchestra."],
-    ["shape", b.shape, "Hit beats in order: down → left → right → up."],
+    ["timing", b.timing, "Watch the beat — hit the lit dot on the pulse."],
+    ["accuracy", b.accuracy, "Reach for the glowing beat number when it lights up."],
+    ["continuity", b.continuity, "Keep hitting the lit dots — long gaps drop continuity."],
+    ["shape", b.shape, "Touch the highlighted beat in order on the gold route."],
     ["expression", b.expression, "Vary gesture size for louder and softer phrases."],
   ];
   entries.sort((a, c) => a[1] - c[1]);
@@ -103,10 +179,16 @@ function coachFromBreakdown(b: ConductGradeBreakdown, phrase: number): string {
   return entries[0][2];
 }
 
+/** Normal score tempo — never faster than this in pattern mode. */
+const TEMPO_MAX = 1;
+/** Near-stop when cues are missed — you must hit to keep the song moving. */
+const TEMPO_CRAWL = 0.08;
+/** Gentle start until the first cue hit. */
+const TEMPO_START = 0.42;
+
 /**
- * Pattern conducting locked to the score's beat grid.
- * The glowing node advances with musical time (bpmHint); hit that node in time.
- * Gesture size still shapes dynamics; tempo stays near the score.
+ * Pattern conducting: fixed ictus points, variable route each measure.
+ * Hit lit beats to keep the score at normal tempo; misses crawl the music.
  */
 export class PatternConductDetector {
   private samples: Array<{ t: number; x: number; y: number }> = [];
@@ -124,7 +206,8 @@ export class PatternConductDetector {
   private velX = 0;
   private velY = 0;
   private tipPrimed = false;
-  private insideNext = false;
+  private wasNearGuide = false;
+  private lastSyncSampleAt = 0;
 
   private timingSamples: number[] = [];
   private accuracySamples: number[] = [];
@@ -141,7 +224,7 @@ export class PatternConductDetector {
     this.lastHitAt = 0;
     this.lastHitBeatIndex = -1;
     this.lastPulseBeat = -1;
-    this.tempoRate = 1;
+    this.tempoRate = TEMPO_START;
     this.dynamics = 0.45;
     this.sync = 0.5;
     this.phrase = 0.4;
@@ -152,7 +235,8 @@ export class PatternConductDetector {
     this.velX = 0;
     this.velY = 0;
     this.tipPrimed = false;
-    this.insideNext = false;
+    this.wasNearGuide = false;
+    this.lastSyncSampleAt = 0;
     this.timingSamples = [];
     this.accuracySamples = [];
     this.orderedHits = 0;
@@ -164,7 +248,6 @@ export class PatternConductDetector {
     this.lastScoreTime = 0;
   }
 
-  /** Call when a new Play / Replay starts so grading begins fresh. */
   beginPerformance(): void {
     this.reset();
   }
@@ -178,12 +261,37 @@ export class PatternConductDetector {
     return g;
   }
 
-  get targets(): PatternTarget[] {
-    return PATTERN_4_4;
-  }
-
-  get nextBeat(): PatternBeat {
-    return PATTERN_4_4[0].beat;
+  /** Live beat snapshot for UI rAF (works without a hand frame). */
+  peekGuide(scoreTime: number, baseBpm: number, playing: boolean): {
+    measurePhase: number;
+    beatPhase: number;
+    pulse: boolean;
+    guideX: number;
+    guideY: number;
+    nextBeat: PatternBeat;
+    targets: PatternTarget[];
+    pathEdges: Array<[PatternBeat, PatternBeat]>;
+  } {
+    const beatPeriodSec = 60 / Math.max(40, baseBpm);
+    const scoreT = finiteOr(scoreTime, 0);
+    const beatFloat = playing ? scoreT / beatPeriodSec : 0;
+    const beatPhase = beatFloat - Math.floor(beatFloat);
+    const measureIndex = Math.floor(beatFloat / 4);
+    const measurePhase = playing ? (((beatFloat % 4) + 4) % 4) / 4 : 0;
+    const order = pathForMeasure(measureIndex);
+    const beatInMeasure = Math.min(3, Math.floor((((beatFloat % 4) + 4) % 4)));
+    const nextBeat = order[beatInMeasure];
+    const lit = PATTERN_4_4[nextBeat - 1];
+    return {
+      measurePhase,
+      beatPhase,
+      pulse: playing && beatPhase < 0.14,
+      guideX: lit.x,
+      guideY: lit.y,
+      nextBeat,
+      targets: PATTERN_4_4,
+      pathEdges: edgesFromPath(order),
+    };
   }
 
   private mean(xs: number[], fallback: number): number {
@@ -250,54 +358,76 @@ export class PatternConductDetector {
     opts: PatternUpdateOpts,
   ): PatternConductState {
     const now = opts.now ?? performance.now();
+    // Beat clock is in score-time; wall-clock pace is driven by hit-gated tempoRate.
     const beatPeriodSec = 60 / Math.max(40, opts.baseBpm);
     const beatPeriodMs = beatPeriodSec * 1000;
-    const beatFloat = opts.playing ? opts.scoreTime / beatPeriodSec : 0;
+    const scoreTime = finiteOr(opts.scoreTime, 0);
+    const beatFloat = opts.playing ? scoreTime / beatPeriodSec : 0;
     const beatIndex = Math.floor(beatFloat);
     const beatPhase = beatFloat - Math.floor(beatFloat);
-    const measureIdx = ((beatIndex % 4) + 4) % 4;
-    const target = PATTERN_4_4[measureIdx];
+    const measureIndex = Math.floor(beatFloat / 4);
+    const measurePhase = opts.playing ? (((beatFloat % 4) + 4) % 4) / 4 : 0;
+    const order = pathForMeasure(measureIndex);
+    const pathEdges = edgesFromPath(order);
+    const beatInMeasure = Math.min(3, Math.floor((((beatFloat % 4) + 4) % 4)));
+    const segmentBeat = order[beatInMeasure];
+    const lit = PATTERN_4_4[segmentBeat - 1];
     const pulse =
-      opts.playing && beatIndex !== this.lastPulseBeat && beatPhase < 0.12;
+      opts.playing && beatIndex !== this.lastPulseBeat && beatPhase < 0.14;
     if (pulse) this.lastPulseBeat = beatIndex;
 
-    const grade = this.gradeFrozen && this.frozenGrade
-      ? this.frozenGrade
-      : this.computeGrade();
+    const grade =
+      this.gradeFrozen && this.frozenGrade ? this.frozenGrade : this.computeGrade();
 
-    if (opts.playing && opts.scoreTime > this.lastScoreTime) {
-      const dt = opts.scoreTime - this.lastScoreTime;
+    if (opts.playing && scoreTime > this.lastScoreTime) {
+      const dt = scoreTime - this.lastScoreTime;
       this.expectedBeats += dt / beatPeriodSec;
-      this.lastScoreTime = opts.scoreTime;
+      this.lastScoreTime = scoreTime;
     }
 
-    // Stay with the score pulse so figure lighting matches the music
-    if (opts.playing) {
-      this.tempoRate += (1 - this.tempoRate) * 0.2;
-    }
+    const pack = (active: boolean, beat: boolean): PatternConductState => ({
+      tempoRate: this.tempoRate,
+      dynamics: this.dynamics,
+      sync: this.sync,
+      phrase: this.phrase,
+      beat,
+      pulse,
+      beatPhase,
+      measurePhase,
+      guideX: lit.x,
+      guideY: lit.y,
+      tipX: this.tipX,
+      tipY: this.tipY,
+      active,
+      nextBeat: segmentBeat,
+      targets: PATTERN_4_4,
+      pathEdges,
+      grade,
+    });
+
+    /** Drift toward crawl when the conductor isn't landing cues. */
+    const decayTempo = (urgency = 0.5) => {
+      const u = clamp(urgency, 0, 1);
+      this.tempoRate += (TEMPO_CRAWL - this.tempoRate) * (0.1 + u * 0.28);
+      this.tempoRate = clamp(this.tempoRate, TEMPO_CRAWL, TEMPO_MAX);
+    };
+
+    /** Restore toward normal score tempo after a successful cue. */
+    const boostTempo = (timingHit: number) => {
+      const leap = 0.5 + timingHit * 0.4;
+      this.tempoRate += (TEMPO_MAX - this.tempoRate) * leap;
+      this.tempoRate = clamp(this.tempoRate, TEMPO_CRAWL, TEMPO_MAX);
+    };
 
     if (!rightLandmarks || rightLandmarks.length < 21) {
       if (opts.playing) {
         this.dynamics += (0.25 - this.dynamics) * 0.05;
         this.sync += (0.3 - this.sync) * 0.04;
+        decayTempo(0.75);
       }
       this.samples = [];
-      this.insideNext = false;
-      return {
-        tempoRate: this.tempoRate,
-        dynamics: this.dynamics,
-        sync: this.sync,
-        phrase: this.phrase,
-        beat: false,
-        pulse,
-        beatPhase,
-        tipX: this.tipX,
-        tipY: this.tipY,
-        active: false,
-        nextBeat: target.beat,
-        targets: PATTERN_4_4,
-        grade,
-      };
+      this.wasNearGuide = false;
+      return pack(false, false);
     }
 
     const tip = rightLandmarks[INDEX_TIP];
@@ -308,10 +438,8 @@ export class PatternConductDetector {
       const a = this.samples[this.samples.length - 2];
       const b = this.samples[this.samples.length - 1];
       const dt = Math.max(12, b.t - a.t) / 1000;
-      const ivx = (b.x - a.x) / dt;
-      const ivy = (b.y - a.y) / dt;
-      this.velX += (ivx - this.velX) * VEL_SMOOTH;
-      this.velY += (ivy - this.velY) * VEL_SMOOTH;
+      this.velX += ((b.x - a.x) / dt - this.velX) * VEL_SMOOTH;
+      this.velY += ((b.y - a.y) / dt - this.velY) * VEL_SMOOTH;
     }
 
     if (!this.tipPrimed) {
@@ -339,7 +467,7 @@ export class PatternConductDetector {
     this.tipY = this.smoothY;
 
     if (this.samples.length >= 3) {
-      let path = 0;
+      let pathLen = 0;
       let minX = 1;
       let maxX = 0;
       let minY = 1;
@@ -352,77 +480,61 @@ export class PatternConductDetector {
         maxY = Math.max(maxY, s.y);
         if (i > 0) {
           const a = this.samples[i - 1];
-          path += Math.hypot(s.x - a.x, s.y - a.y);
+          pathLen += Math.hypot(s.x - a.x, s.y - a.y);
         }
       }
       const box = (maxX - minX) * (maxY - minY);
-      const phraseTarget = clamp(path * 1.8 + box * 5.5, 0.1, 1);
+      const phraseTarget = clamp(pathLen * 1.8 + box * 5.5, 0.1, 1);
       this.phrase += (phraseTarget - this.phrase) * 0.28;
     }
 
-    const distRaw = Math.hypot(this.smoothX - target.x, this.smoothY - target.y);
-    const distAim = Math.hypot(aimX - target.x, aimY - target.y);
-    const dist = Math.min(distRaw, distAim);
-    const inDisk = dist <= HIT_RADIUS;
-
-    let approaching = false;
-    if (this.samples.length >= 3) {
-      const a = this.samples[this.samples.length - 3];
-      const c = this.samples[this.samples.length - 1];
-      const dPrev = Math.hypot(a.x - target.x, a.y - target.y);
-      const dNow = Math.hypot(c.x - target.x, c.y - target.y);
-      approaching = dNow < dPrev - 0.003;
-    }
+    const dist = Math.min(
+      Math.hypot(this.smoothX - lit.x, this.smoothY - lit.y),
+      Math.hypot(aimX - lit.x, aimY - lit.y),
+    );
+    const near = dist <= HIT_RADIUS;
 
     let beat = false;
     const cool = now - this.lastHitAt > Math.min(HIT_COOLDOWN_MS, beatPeriodMs * 0.35);
-    // Prefer ictus near the start of each musical beat
     const inTimeWindow = beatPhase < 0.48 || beatPhase > 0.9;
     const alreadyHitThisBeat = this.lastHitBeatIndex === beatIndex;
 
-    if (
-      opts.playing &&
-      inDisk &&
-      !this.insideNext &&
-      cool &&
-      !alreadyHitThisBeat &&
-      inTimeWindow &&
-      (approaching || dist < HIT_RADIUS * 0.65 || distAim < HIT_RADIUS * 0.85)
-    ) {
-      this.totalHitAttempts += 1;
-      this.orderedHits += 1;
-      const accuracy = clamp(1 - dist / HIT_RADIUS, 0, 1);
+    if (opts.playing && now - this.lastSyncSampleAt > 90) {
+      this.lastSyncSampleAt = now;
+      const accuracy = clamp(1 - dist / (HIT_RADIUS * 1.35), 0, 1);
       this.accuracySamples.push(accuracy);
       if (this.accuracySamples.length > 48) this.accuracySamples.shift();
+      this.totalHitAttempts += 1;
+      if (near) this.orderedHits += 1;
+      this.sync += (accuracy - this.sync) * 0.18;
+    }
 
-      // Timing vs musical ictus (phase 0)
+    if (
+      opts.playing &&
+      near &&
+      !this.wasNearGuide &&
+      cool &&
+      !alreadyHitThisBeat &&
+      inTimeWindow
+    ) {
       const phaseErr = beatPhase > 0.5 ? 1 - beatPhase : beatPhase;
       const timingHit = clamp(1 - phaseErr / 0.42, 0, 1);
       this.timingSamples.push(timingHit);
       if (this.timingSamples.length > 48) this.timingSamples.shift();
-
-      this.sync += ((accuracy * 0.45 + timingHit * 0.55) - this.sync) * 0.4;
+      this.sync +=
+        (clamp(1 - dist / HIT_RADIUS, 0, 1) * 0.4 + timingHit * 0.6 - this.sync) * 0.35;
       this.lastHitAt = now;
       this.lastHitBeatIndex = beatIndex;
       beat = true;
-    } else if (
-      opts.playing &&
-      inDisk &&
-      !this.insideNext &&
-      cool &&
-      !alreadyHitThisBeat &&
-      !inTimeWindow
-    ) {
-      // On the right node but off the song beat
-      this.totalHitAttempts += 1;
-      this.timingSamples.push(0.2);
+      boostTempo(timingHit);
+    } else if (opts.playing && pulse && !near && !alreadyHitThisBeat) {
+      this.timingSamples.push(0.25);
       if (this.timingSamples.length > 48) this.timingSamples.shift();
     }
 
-    this.insideNext = inDisk;
+    this.wasNearGuide = near;
 
     if (opts.playing) {
-      // Missed a musical beat entirely
       if (
         beatIndex > 0 &&
         this.lastHitBeatIndex < beatIndex - 1 &&
@@ -430,6 +542,25 @@ export class PatternConductDetector {
         this.lastHitBeatIndex !== beatIndex
       ) {
         this.sync += (0.32 - this.sync) * 0.06;
+      }
+
+      // Hit-gated tempo: keep normal pace only while cues are landed.
+      if (!beat) {
+        const sinceHitMs = this.lastHitAt > 0 ? now - this.lastHitAt : Infinity;
+        const missedCurrent =
+          this.lastHitBeatIndex !== beatIndex && beatPhase > 0.62;
+        const skippedBeats = this.lastHitBeatIndex >= 0 && beatIndex - this.lastHitBeatIndex > 1;
+        if (missedCurrent || skippedBeats || sinceHitMs > beatPeriodMs * 1.15) {
+          const late =
+            missedCurrent || skippedBeats
+              ? 0.55 + clamp(beatPhase, 0, 1) * 0.45
+              : clamp((sinceHitMs - beatPeriodMs) / beatPeriodMs, 0.35, 1);
+          decayTempo(late);
+        } else if (this.lastHitBeatIndex === beatIndex) {
+          // Just hit this beat — settle at full tempo until the next cue.
+          this.tempoRate += (TEMPO_MAX - this.tempoRate) * 0.1;
+          this.tempoRate = clamp(this.tempoRate, TEMPO_CRAWL, TEMPO_MAX);
+        }
       }
 
       const dyn = clamp(this.phrase * (0.4 + 0.6 * this.sync), 0.12, 1);
@@ -446,11 +577,15 @@ export class PatternConductDetector {
       beat,
       pulse,
       beatPhase,
+      measurePhase,
+      guideX: lit.x,
+      guideY: lit.y,
       tipX: this.tipX,
       tipY: this.tipY,
       active: true,
-      nextBeat: target.beat,
+      nextBeat: segmentBeat,
       targets: PATTERN_4_4,
+      pathEdges,
       grade: this.gradeFrozen && this.frozenGrade ? this.frozenGrade : this.computeGrade(),
     };
   }

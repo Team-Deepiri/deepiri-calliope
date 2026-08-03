@@ -24,6 +24,9 @@ export type BatonLevels = {
   sync: number;
   phrase: number;
   beatPhase: number;
+  measurePhase: number;
+  guideX: number;
+  guideY: number;
   bass: number;
   mid: number;
   treble: number;
@@ -34,6 +37,7 @@ export type BatonLevels = {
   tipY: number;
   nextBeat: PatternBeat;
   targets: PatternTarget[];
+  pathEdges: Array<[PatternBeat, PatternBeat]>;
   grade: ConductGrade;
 };
 
@@ -118,6 +122,9 @@ export function useBatonOrchestra(enabled: boolean) {
     sync: 0.55,
     phrase: 0.45,
     beatPhase: 0,
+    measurePhase: 0,
+    guideX: 0.5,
+    guideY: 0.78,
     bass: 0.75,
     mid: 0.75,
     treble: 0.75,
@@ -128,6 +135,12 @@ export function useBatonOrchestra(enabled: boolean) {
     tipY: 0.5,
     nextBeat: 1,
     targets: PATTERN_4_4,
+    pathEdges: [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 1],
+    ],
     grade: emptyGrade(),
   });
   const [finalReport, setFinalReport] = useState<ConductGrade | null>(null);
@@ -213,10 +226,11 @@ export function useBatonOrchestra(enabled: boolean) {
 
   useEffect(() => () => disarm(), [disarm]);
 
-  // Keep progress / ended state fresh even if hands aren't updating the UI path.
+  // Keep guide / progress / ended state fresh on every frame while playing.
   useEffect(() => {
     if (playback !== "playing") return;
-    const id = window.setInterval(() => {
+    let raf = 0;
+    const loop = () => {
       const engine = engineRef.current;
       const next = playbackFromEngine(engine);
       if (next !== "playing") {
@@ -237,13 +251,33 @@ export function useBatonOrchestra(enabled: boolean) {
         }
         return;
       }
+
       const dur = engine.duration || 1;
+      const score = scoreRef.current;
+      const baseBpm = score?.bpmHint ?? 54;
+      const peek = patternRef.current.peekGuide(
+        engine.currentScoreTime,
+        baseBpm,
+        true,
+      );
+
       setLevels((prev) => ({
         ...prev,
         progress: Math.min(1, engine.currentScoreTime / dur),
+        measurePhase: peek.measurePhase,
+        guideX: peek.guideX,
+        guideY: peek.guideY,
+        beatPhase: peek.beatPhase,
+        pulse: peek.pulse,
+        nextBeat: peek.nextBeat,
+        targets: peek.targets,
+        pathEdges: peek.pathEdges,
       }));
-    }, 200);
-    return () => window.clearInterval(id);
+
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
   }, [playback]);
 
   const loadScore = useCallback(
@@ -410,9 +444,18 @@ export function useBatonOrchestra(enabled: boolean) {
       let tipY = 0.5;
       let pulse = false;
       let beatPhase = 0;
+      let measurePhase = 0;
+      let guideX = 0.5;
+      let guideY = 0.78;
       let active = false;
       let nextBeat: PatternBeat = 1;
       let targets = PATTERN_4_4;
+      let pathEdges: Array<[PatternBeat, PatternBeat]> = [
+        [1, 2],
+        [2, 3],
+        [3, 4],
+        [4, 1],
+      ];
       let grade = emptyGrade();
 
       if (mode === "pattern") {
@@ -429,11 +472,15 @@ export function useBatonOrchestra(enabled: boolean) {
         beat = pat.beat;
         pulse = pat.pulse;
         beatPhase = pat.beatPhase;
+        measurePhase = pat.measurePhase;
+        guideX = pat.guideX;
+        guideY = pat.guideY;
         tipX = pat.tipX;
         tipY = pat.tipY;
         active = pat.active;
         nextBeat = pat.nextBeat;
         targets = pat.targets;
+        pathEdges = pat.pathEdges;
         grade = pat.grade;
       } else {
         const baton = batonRef.current.update(right, {
@@ -486,6 +533,9 @@ export function useBatonOrchestra(enabled: boolean) {
           sync,
           phrase,
           beatPhase,
+          measurePhase,
+          guideX,
+          guideY,
           bass: groups.bass,
           mid: groups.mid,
           treble: groups.treble,
@@ -496,6 +546,7 @@ export function useBatonOrchestra(enabled: boolean) {
           progress: Math.min(1, engine.currentScoreTime / dur),
           nextBeat,
           targets,
+          pathEdges,
           grade,
         });
       }

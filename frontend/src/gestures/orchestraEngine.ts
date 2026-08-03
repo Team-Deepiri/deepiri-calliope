@@ -377,7 +377,7 @@ export class OrchestraEngine {
   }
 
   setTempoRate(rate: number): void {
-    this.tempoRate = Math.min(1.45, Math.max(0.4, rate));
+    this.tempoRate = Math.min(1.45, Math.max(0.05, rate));
   }
 
   setDynamics(level: number): void {

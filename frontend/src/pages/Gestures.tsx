@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { CameraStage } from "../components/gestures/CameraStage";
 import { useHandTracker } from "../gestures/useHandTracker";
 import { useBatonOrchestra } from "../gestures/useBatonOrchestra";
+import { FIGURE_EDGES } from "../gestures/patternConduct";
 import { stashGesturesStudioImport } from "../gestures/studioHandoff";
 import type { Landmark } from "../gestures/deriveSignals";
 import "../styles/gestures.css";
@@ -39,6 +40,14 @@ function Meter({
 
 function clamp01(v: number) {
   return Math.min(1, Math.max(0, v));
+}
+
+function pct(v: number, fallback: number): number {
+  return Number.isFinite(v) ? v * 100 : fallback * 100;
+}
+
+function mirrorX(x: number, fallback = 0.5): number {
+  return pct(1 - (Number.isFinite(x) ? x : fallback), 0.5);
 }
 
 export function Gestures() {
@@ -109,7 +118,7 @@ export function Gestures() {
 
   const coachText =
     conductMode === "pattern"
-      ? "Pattern: the glowing node follows the song’s 4/4 beat — hit each one in time (down → left → right → up). Gesture size = dynamics. Left hand = bass / mid / treble."
+      ? "Pattern: hit lit beat dots to keep the song at normal tempo — miss and it crawls. Never faster than the score. Gesture size = dynamics. Left hand = bass / mid / treble."
       : "Free tempo: stroke rate sets tempo; stroke size sets dynamics. Left hand = bass / mid / treble.";
 
   return (
@@ -174,7 +183,7 @@ export function Gestures() {
                 </div>
                 <small className="gestures-muted">
                   {conductMode === "pattern"
-                    ? "Point with your index tip and hit the glowing node when the song’s beat lands. Bigger patterns = louder."
+                    ? "Hit the lit dots to keep the music moving — miss and it slows to a crawl."
                     : "Wave your index tip as the stick. Left hand balances the orchestra bands."}
                 </small>
               </div>
@@ -183,9 +192,9 @@ export function Gestures() {
               {conductMode === "pattern" ? (
                 <>
                   <li className="gestures-vocab__item">
-                    <strong>4/4 figure</strong>
-                    <span>Drive the score</span>
-                    <small>Down → left → right → up</small>
+                    <strong>Lit beat</strong>
+                    <span>Hit to keep tempo</span>
+                    <small>Land cues for normal pace; miss and the song crawls</small>
                   </li>
                   <li className="gestures-vocab__item">
                     <strong>Pattern size</strong>
@@ -266,42 +275,72 @@ export function Gestures() {
             }
             aria-hidden
           >
-            {conductMode === "pattern" &&
-              batonLevels.targets.map((t) => (
-                <span
-                  key={t.beat}
-                  className={
-                    "gestures-pattern-node" +
-                    (t.beat === batonLevels.nextBeat ? " gestures-pattern-node--next" : "") +
-                    (t.beat < batonLevels.nextBeat ? " gestures-pattern-node--done" : "") +
-                    (t.beat === batonLevels.nextBeat && batonLevels.pulse
-                      ? " gestures-pattern-node--ictus"
-                      : "")
-                  }
-                  style={
-                    t.beat === batonLevels.nextBeat
-                      ? {
-                          left: `${(1 - t.x) * 100}%`,
-                          top: `${t.y * 100}%`,
-                          // Brighten as we approach the musical ictus (phase → 0)
-                          opacity: 0.55 + (1 - batonLevels.beatPhase) * 0.45,
-                        }
-                      : {
-                          left: `${(1 - t.x) * 100}%`,
-                          top: `${t.y * 100}%`,
-                        }
-                  }
-                >
-                  {t.label}
-                </span>
-              ))}
+            {conductMode === "pattern" && (
+              <>
+                <svg className="gestures-pattern-path" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  {FIGURE_EDGES.map(([a, b]) => {
+                    const pa = batonLevels.targets.find((t) => t.beat === a);
+                    const pb = batonLevels.targets.find((t) => t.beat === b);
+                    if (!pa || !pb) return null;
+                    return (
+                      <line
+                        key={`mesh-${a}-${b}`}
+                        x1={(1 - pa.x) * 100}
+                        y1={pa.y * 100}
+                        x2={(1 - pb.x) * 100}
+                        y2={pb.y * 100}
+                        stroke="rgba(148, 163, 184, 0.22)"
+                        strokeWidth="1"
+                        strokeLinecap="round"
+                      />
+                    );
+                  })}
+                  {(batonLevels.pathEdges ?? []).map(([a, b]) => {
+                    const pa = batonLevels.targets.find((t) => t.beat === a);
+                    const pb = batonLevels.targets.find((t) => t.beat === b);
+                    if (!pa || !pb) return null;
+                    return (
+                      <line
+                        key={`path-${a}-${b}`}
+                        x1={(1 - pa.x) * 100}
+                        y1={pa.y * 100}
+                        x2={(1 - pb.x) * 100}
+                        y2={pb.y * 100}
+                        stroke="rgba(251, 191, 36, 0.4)"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                    );
+                  })}
+                </svg>
+                {batonLevels.targets.map((t) => {
+                  const isLit = t.beat === batonLevels.nextBeat;
+                  return (
+                    <span
+                      key={t.beat}
+                      className={
+                        "gestures-pattern-node gestures-pattern-node--waypoint" +
+                        (isLit ? " gestures-pattern-node--active" : "") +
+                        (isLit && batonLevels.pulse ? " gestures-pattern-node--ictus" : "")
+                      }
+                      style={{
+                        left: `${mirrorX(t.x)}%`,
+                        top: `${pct(t.y, 0.5)}%`,
+                      }}
+                    >
+                      {t.label}
+                    </span>
+                  );
+                })}
+              </>
+            )}
             <span
               className={
                 "gestures-baton-tip" + (batonLevels.beat ? " gestures-baton-tip--beat" : "")
               }
               style={{
-                left: `${(1 - batonLevels.tipX) * 100}%`,
-                top: `${batonLevels.tipY * 100}%`,
+                left: `${mirrorX(batonLevels.tipX, 0.5)}%`,
+                top: `${pct(batonLevels.tipY, 0.5)}%`,
               }}
             />
           </div>
@@ -445,6 +484,11 @@ export function Gestures() {
               <Meter label="Timing" value={grade.breakdown.timing} accent="#fde68a" />
               <Meter label="Accuracy" value={grade.breakdown.accuracy} accent="#f472b6" />
               <Meter label="Continuity" value={grade.breakdown.continuity} accent="#34d399" />
+              <Meter
+                label="Tempo"
+                value={batonLevels.tempoRate}
+                accent="#f472b6"
+              />
               <Meter label="Dynamics" value={batonLevels.dynamics} accent="var(--primary-500)" />
             </>
           ) : (
