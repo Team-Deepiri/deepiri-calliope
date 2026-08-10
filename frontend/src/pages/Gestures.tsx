@@ -345,6 +345,41 @@ export function Gestures() {
             />
           </div>
 
+          {conductMode === "pattern" ? (
+            <div className="gestures-live-hud" aria-label="Conducting metrics">
+              <div className="gestures-live-hud__grade">
+                <span className="gestures-live-hud__letter">
+                  {grade.letter}
+                </span>
+                <div>
+                  <strong>{grade.score}</strong>
+                  <small>{grade.coach || "Conduct to build a grade"}</small>
+                </div>
+              </div>
+              <div className="gestures-live-hud__meters">
+                <Meter label="Timing" value={grade.breakdown.timing} accent="#fde68a" />
+                <Meter label="Accuracy" value={grade.breakdown.accuracy} accent="#f472b6" />
+                <Meter label="Continuity" value={grade.breakdown.continuity} accent="#34d399" />
+                <Meter label="Tempo" value={batonLevels.tempoRate} accent="#c084fc" />
+                <Meter label="Dynamics" value={batonLevels.dynamics} accent="var(--primary-500)" />
+                <Meter label="Progress" value={batonLevels.progress} accent="#94a3b8" />
+              </div>
+            </div>
+          ) : (
+            <div className="gestures-live-hud gestures-live-hud--free" aria-label="Free tempo meters">
+              <div className="gestures-live-hud__meters">
+                <Meter label="Phrase" value={batonLevels.phrase} accent="#f472b6" />
+                <Meter label="Dynamics" value={batonLevels.dynamics} accent="var(--primary-500)" />
+                <Meter
+                  label="Tempo rate"
+                  value={(batonLevels.tempoRate - 0.55) / 0.9}
+                  accent="#c084fc"
+                />
+                <Meter label="Progress" value={batonLevels.progress} accent="#94a3b8" />
+              </div>
+            </div>
+          )}
+
           <div className="gestures-mode-row" role="group" aria-label="Conduct mode">
             <button
               type="button"
@@ -478,49 +513,26 @@ export function Gestures() {
             ))}
           </div>
 
-          {conductMode === "pattern" ? (
-            <>
-              <Meter label="Grade" value={grade.score / 100} accent="#fbbf24" />
-              <Meter label="Timing" value={grade.breakdown.timing} accent="#fde68a" />
-              <Meter label="Accuracy" value={grade.breakdown.accuracy} accent="#f472b6" />
-              <Meter label="Continuity" value={grade.breakdown.continuity} accent="#34d399" />
-              <Meter
-                label="Tempo"
-                value={batonLevels.tempoRate}
-                accent="#f472b6"
-              />
-              <Meter label="Dynamics" value={batonLevels.dynamics} accent="var(--primary-500)" />
-            </>
-          ) : (
-            <>
-              <Meter label="Phrase" value={batonLevels.phrase} accent="#f472b6" />
-              <Meter label="Dynamics" value={batonLevels.dynamics} accent="var(--primary-500)" />
-              <Meter
-                label="Tempo rate"
-                value={(batonLevels.tempoRate - 0.55) / 0.9}
-                accent="#f472b6"
-              />
-            </>
-          )}
-          <Meter
-            label="Bass"
-            value={batonLevels.bass}
-            accent="#f97316"
-            spotlight={batonLevels.bass > 0.55}
-          />
-          <Meter
-            label="Mid"
-            value={batonLevels.mid}
-            accent="#34d399"
-            spotlight={batonLevels.mid > 0.55}
-          />
-          <Meter
-            label="Treble"
-            value={batonLevels.treble}
-            accent="#818cf8"
-            spotlight={batonLevels.treble > 0.55}
-          />
-          <Meter label="Progress" value={batonLevels.progress} accent="#94a3b8" />
+          <div className="gestures-mix-meters" aria-label="Orchestra balance">
+            <Meter
+              label="Bass"
+              value={batonLevels.bass}
+              accent="#f97316"
+              spotlight={batonLevels.bass > 0.55}
+            />
+            <Meter
+              label="Mid"
+              value={batonLevels.mid}
+              accent="#34d399"
+              spotlight={batonLevels.mid > 0.55}
+            />
+            <Meter
+              label="Treble"
+              value={batonLevels.treble}
+              accent="#818cf8"
+              spotlight={batonLevels.treble > 0.55}
+            />
+          </div>
 
           <p className="gestures-muted" style={{ marginTop: "0.75rem" }}>
             Orchestral FluidR3 voices + hall bus. Each Play is captured — Send to Studio drops the

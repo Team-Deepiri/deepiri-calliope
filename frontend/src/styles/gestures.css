@@ -630,14 +630,14 @@
 
 .gestures-pattern-node {
   position: absolute;
-  width: 22px;
-  height: 22px;
-  margin: -11px 0 0 -11px;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: rgba(148, 163, 184, 0.75);
   border: 1px solid rgba(148, 163, 184, 0.35);
@@ -704,8 +704,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 3rem;
-  padding: 0.35rem 0.55rem;
+  min-width: 3.4rem;
+  padding: 0.45rem 0.65rem;
   border-radius: 10px;
   border: 1px solid rgba(251, 191, 36, 0.4);
   background: rgba(251, 191, 36, 0.1);
@@ -718,9 +718,9 @@
 }
 
 .gestures-grade-badge__letter {
-  font-size: 1.25rem;
+  font-size: 1.35rem;
   font-weight: 800;
-  color: #fde68a;
+  color: #fbbf24;
 }
 
 .gestures-grade-badge--final .gestures-grade-badge__letter {
@@ -730,6 +730,107 @@
 .gestures-grade-badge__score {
   font-size: 0.7rem;
   color: var(--text-muted, #94a3b8);
+}
+
+.gestures-live-hud {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin: 0.65rem 0 0.35rem;
+  padding: 0.75rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: linear-gradient(
+    160deg,
+    rgba(251, 191, 36, 0.12),
+    rgba(15, 23, 42, 0.45) 45%,
+    rgba(15, 23, 42, 0.25)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.gestures-live-hud--free {
+  border-color: rgba(129, 140, 248, 0.3);
+  background: linear-gradient(
+    160deg,
+    rgba(129, 140, 248, 0.1),
+    rgba(15, 23, 42, 0.4) 50%
+  );
+}
+
+.gestures-live-hud__grade {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.gestures-live-hud__letter {
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #0f172a;
+  background: #fbbf24;
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.35);
+}
+
+.gestures-live-hud__grade strong {
+  display: block;
+  font-size: 1.15rem;
+  line-height: 1.1;
+  color: var(--light);
+}
+
+.gestures-live-hud__grade small {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+.gestures-live-hud__meters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem 0.75rem;
+}
+
+.gestures-live-hud__meters .gestures-meter {
+  gap: 0.2rem;
+}
+
+.gestures-live-hud__meters .gestures-meter__label {
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.gestures-live-hud__meters .gestures-meter__value {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--light);
+}
+
+.gestures-live-hud__meters .gestures-meter__track {
+  height: 6px;
+}
+
+.gestures-mix-meters {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+
+@media (max-width: 520px) {
+  .gestures-live-hud__meters,
+  .gestures-mix-meters {
+    grid-template-columns: 1fr;
+  }
 }
 
 .gestures-final-card {

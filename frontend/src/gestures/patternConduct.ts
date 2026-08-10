@@ -57,8 +57,9 @@ export type PatternUpdateOpts = {
 };
 
 const INDEX_TIP = 8;
-const HIT_RADIUS = 0.16;
-const HIT_COOLDOWN_MS = 130;
+/** Generous disk — webcam jitter + tip smoothing need headroom. */
+const HIT_RADIUS = 0.22;
+const HIT_COOLDOWN_MS = 100;
 const TIP_LEAD_SEC = 0.065;
 const TIP_LEAD_MAX = 0.038;
 const TIP_SMOOTH_STILL = 0.28;
@@ -489,14 +490,15 @@ export class PatternConductDetector {
     }
 
     const dist = Math.min(
+      Math.hypot(tip.x - lit.x, tip.y - lit.y),
       Math.hypot(this.smoothX - lit.x, this.smoothY - lit.y),
       Math.hypot(aimX - lit.x, aimY - lit.y),
     );
     const near = dist <= HIT_RADIUS;
 
     let beat = false;
-    const cool = now - this.lastHitAt > Math.min(HIT_COOLDOWN_MS, beatPeriodMs * 0.35);
-    const inTimeWindow = beatPhase < 0.48 || beatPhase > 0.9;
+    const cool = now - this.lastHitAt > Math.min(HIT_COOLDOWN_MS, beatPeriodMs * 0.28);
+    // Whole beat is fair game while the cue is lit — early/late only affects grade.
     const alreadyHitThisBeat = this.lastHitBeatIndex === beatIndex;
 
     if (opts.playing && now - this.lastSyncSampleAt > 90) {
@@ -509,16 +511,10 @@ export class PatternConductDetector {
       this.sync += (accuracy - this.sync) * 0.18;
     }
 
-    if (
-      opts.playing &&
-      near &&
-      !this.wasNearGuide &&
-      cool &&
-      !alreadyHitThisBeat &&
-      inTimeWindow
-    ) {
+    // Once per beat while on the lit cue — no enter-edge required (holding early still counts).
+    if (opts.playing && near && cool && !alreadyHitThisBeat) {
       const phaseErr = beatPhase > 0.5 ? 1 - beatPhase : beatPhase;
-      const timingHit = clamp(1 - phaseErr / 0.42, 0, 1);
+      const timingHit = clamp(1 - phaseErr / 0.5, 0, 1);
       this.timingSamples.push(timingHit);
       if (this.timingSamples.length > 48) this.timingSamples.shift();
       this.sync +=
