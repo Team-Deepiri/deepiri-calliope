@@ -67,6 +67,11 @@ export function Gestures() {
     conductMode,
     setConductMode,
     finalReport,
+    calib,
+    hasProfile,
+    startCalibration,
+    cancelCalibration,
+    resetConductorProfile,
     play: playBaton,
     pause: pauseBaton,
     stop: stopBaton,
@@ -118,7 +123,11 @@ export function Gestures() {
 
   const coachText =
     conductMode === "pattern"
-      ? "Pattern: hit lit beat dots to keep the song at normal tempo — miss and it crawls. Never faster than the score. Gesture size = dynamics. Left hand = bass / mid / treble."
+      ? calib.active
+        ? "Calibrating: conduct to each lit beat — we’ll learn your figure (~3 samples per beat). Tempo stays steady."
+        : hasProfile
+          ? "Pattern (your figure): hit lit beats to keep tempo. Miss and it crawls. Left hand = bass / mid / treble."
+          : "Pattern: hit lit beat dots to keep the song at normal tempo — miss and it crawls. Calibrate to personalize the figure."
       : "Free tempo: stroke rate sets tempo; stroke size sets dynamics. Left hand = bass / mid / treble.";
 
   return (
@@ -399,7 +408,66 @@ export function Gestures() {
             >
               Free tempo
             </button>
+            {conductMode === "pattern" && (
+              <>
+                {calib.active ? (
+                  <button
+                    type="button"
+                    className="gestures-mode-chip gestures-mode-chip--warn"
+                    onClick={() => cancelCalibration()}
+                  >
+                    Cancel calib
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="gestures-mode-chip"
+                    onClick={() => void startCalibration()}
+                    disabled={!cameraReady || batonBusy}
+                    title="Learn your personal beat positions from a short conducting sample"
+                  >
+                    Calibrate figure
+                  </button>
+                )}
+                {hasProfile && !calib.active && (
+                  <button
+                    type="button"
+                    className="gestures-mode-chip"
+                    onClick={() => resetConductorProfile()}
+                    title="Restore the default 4/4 figure"
+                  >
+                    Reset figure
+                  </button>
+                )}
+              </>
+            )}
           </div>
+
+          {calib.active && (
+            <div className="gestures-calib-banner" role="status">
+              <strong>
+                Learning your figure · {calib.total}/{calib.goal}
+              </strong>
+              <div className="gestures-calib-banner__beats">
+                {([1, 2, 3, 4] as const).map((b) => (
+                  <span
+                    key={b}
+                    className={
+                      "gestures-calib-pill" +
+                      (calib.counts[b - 1] >= calib.needed ? " gestures-calib-pill--done" : "")
+                    }
+                  >
+                    {b}: {Math.min(calib.counts[b - 1], calib.needed)}/{calib.needed}
+                  </span>
+                ))}
+              </div>
+              <small>Hit each lit cue on the beat — we keep the diamond shape and fit it to your space.</small>
+            </div>
+          )}
+
+          {hasProfile && !calib.active && conductMode === "pattern" && (
+            <p className="gestures-profile-note">Using your calibrated figure</p>
+          )}
 
           <div className="gestures-transport">
             <div className="gestures-transport__actions">

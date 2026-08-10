@@ -5,10 +5,18 @@ import { BatonDetector, type ConductMode } from "./batonDetect";
 import {
   PatternConductDetector,
   PATTERN_4_4,
+  cloneDefaultTargets,
+  type CalibProgress,
   type ConductGrade,
   type PatternBeat,
   type PatternTarget,
 } from "./patternConduct";
+import {
+  clearConductorProfile,
+  emptyCalibProgress,
+  loadConductorProfile,
+  saveConductorProfile,
+} from "./conductorProfile";
 import { OrchestraEngine } from "./orchestraEngine";
 import {
   loadOrchestraManifest,
@@ -41,7 +49,7 @@ export type BatonLevels = {
   grade: ConductGrade;
 };
 
-export type { ConductMode, ConductGrade, PatternBeat, PatternTarget };
+export type { ConductMode, ConductGrade, PatternBeat, PatternTarget, CalibProgress };
 
 export type BatonPlayback = "idle" | "playing" | "paused" | "ended";
 
@@ -144,10 +152,26 @@ export function useBatonOrchestra(enabled: boolean) {
     grade: emptyGrade(),
   });
   const [finalReport, setFinalReport] = useState<ConductGrade | null>(null);
+  const [calib, setCalib] = useState<CalibProgress>(() => emptyCalibProgress(false));
+  const [hasProfile, setHasProfile] = useState(false);
 
   useEffect(() => {
     conductModeRef.current = conductMode;
   }, [conductMode]);
+
+  // Restore personalized figure from localStorage.
+  useEffect(() => {
+    if (!enabled) return;
+    const profile = loadConductorProfile();
+    if (profile) {
+      patternRef.current.setTargets(profile.targets);
+      setHasProfile(true);
+      setLevels((prev) => ({ ...prev, targets: profile.targets }));
+    } else {
+      patternRef.current.setTargets(cloneDefaultTargets());
+      setHasProfile(false);
+    }
+  }, [enabled]);
 
   const syncPlayback = useCallback(() => {
     const next = playbackFromEngine(engineRef.current);
@@ -317,9 +341,10 @@ export function useBatonOrchestra(enabled: boolean) {
           treble: 0.75,
           progress: 0,
           nextBeat: 1,
-          targets: PATTERN_4_4,
+          targets: patternRef.current.getTargets(),
           grade: emptyGrade(),
         }));
+        setCalib(patternRef.current.getCalibProgress());
       } catch (e) {
         void stop();
         setError(e instanceof Error ? e.message : String(e));
@@ -482,6 +507,12 @@ export function useBatonOrchestra(enabled: boolean) {
         targets = pat.targets;
         pathEdges = pat.pathEdges;
         grade = pat.grade;
+        setCalib(pat.calib);
+        const fitted = patternRef.current.consumeFittedProfile();
+        if (fitted) {
+          saveConductorProfile(fitted);
+          setHasProfile(true);
+        }
       } else {
         const baton = batonRef.current.update(right, {
           baseBpm,
@@ -554,6 +585,54 @@ export function useBatonOrchestra(enabled: boolean) {
     [],
   );
 
+  const startCalibration = useCallback(async () => {
+    setConductMode("pattern");
+    conductModeRef.current = "pattern";
+    patternRef.current.startCalibration();
+    setCalib(patternRef.current.getCalibProgress());
+    setLevels((prev) => ({ ...prev, targets: patternRef.current.getTargets() }));
+    const engine = engineRef.current;
+    if (engine.isArmed) {
+      if (engine.isEnded) {
+        patternRef.current.beginPerformance();
+        patternRef.current.startCalibration();
+        setFinalReport(null);
+        engine.restart();
+      } else if (!engine.isPlaying) {
+        engine.resume();
+      }
+      syncPlayback();
+      setCalib(patternRef.current.getCalibProgress());
+      return;
+    }
+    await loadScore(scoreId, true);
+    patternRef.current.startCalibration();
+    setCalib(patternRef.current.getCalibProgress());
+  }, [loadScore, scoreId, syncPlayback]);
+
+  const cancelCalibration = useCallback(() => {
+    patternRef.current.cancelCalibration();
+    const profile = loadConductorProfile();
+    if (profile) {
+      patternRef.current.setTargets(profile.targets);
+      setHasProfile(true);
+    } else {
+      patternRef.current.setTargets(cloneDefaultTargets());
+      setHasProfile(false);
+    }
+    setCalib(emptyCalibProgress(false));
+    setLevels((prev) => ({ ...prev, targets: patternRef.current.getTargets() }));
+  }, []);
+
+  const resetConductorProfile = useCallback(() => {
+    clearConductorProfile();
+    patternRef.current.cancelCalibration();
+    patternRef.current.setTargets(cloneDefaultTargets());
+    setHasProfile(false);
+    setCalib(emptyCalibProgress(false));
+    setLevels((prev) => ({ ...prev, targets: cloneDefaultTargets() }));
+  }, []);
+
   const onStereoFrame = useCallback((_left: HandSignals, _right: HandSignals) => {
     /* group + baton applied in onStereoHands */
   }, []);
@@ -571,6 +650,11 @@ export function useBatonOrchestra(enabled: boolean) {
     conductMode,
     setConductMode,
     finalReport,
+    calib,
+    hasProfile,
+    startCalibration,
+    cancelCalibration,
+    resetConductorProfile,
     play,
     pause,
     togglePlayPause,

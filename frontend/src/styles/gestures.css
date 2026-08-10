@@ -873,7 +873,7 @@
 }
 
 .gestures-mode-chip {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 2.25rem;
   padding: 0.4rem 0.75rem;
   border-radius: 10px;
@@ -888,6 +888,63 @@
 .gestures-mode-chip--on {
   border-color: rgba(251, 191, 36, 0.55);
   background: rgba(251, 191, 36, 0.12);
+  color: #fde68a;
+}
+
+.gestures-mode-chip--warn {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fca5a5;
+}
+
+.gestures-calib-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.35rem 0 0.15rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(129, 140, 248, 0.4);
+  background: rgba(129, 140, 248, 0.1);
+}
+
+.gestures-calib-banner strong {
+  font-size: 0.9rem;
+  color: var(--light);
+}
+
+.gestures-calib-banner small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.gestures-calib-banner__beats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.gestures-calib-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gestures-calib-pill--done {
+  border-color: rgba(52, 211, 153, 0.55);
+  background: rgba(52, 211, 153, 0.15);
+  color: #6ee7b7;
+}
+
+.gestures-profile-note {
+  margin: 0.25rem 0 0;
+  font-size: 0.72rem;
   color: #fde68a;
 }
 

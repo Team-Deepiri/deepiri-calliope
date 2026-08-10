@@ -1,3 +1,12 @@
+import {
+  CALIB_SAMPLES_PER_BEAT,
+  fitTargetsFromSamples,
+  profileFromTargets,
+  progressFromSamples,
+  type CalibProgress,
+  type ConductorProfile,
+  type TipSample,
+} from "./conductorProfile";
 import type { Landmark } from "./deriveSignals";
 
 export type PatternBeat = 1 | 2 | 3 | 4;
@@ -46,7 +55,10 @@ export type PatternConductState = {
   /** Active path edges for this measure (variable cycle). */
   pathEdges: Array<[PatternBeat, PatternBeat]>;
   grade: ConductGrade;
+  calib: CalibProgress;
 };
+
+export type { CalibProgress, ConductorProfile };
 
 export type PatternUpdateOpts = {
   baseBpm: number;
@@ -74,6 +86,10 @@ export const PATTERN_4_4: PatternTarget[] = [
   { beat: 3, x: 0.26, y: 0.52, label: "3" },
   { beat: 4, x: 0.5, y: 0.22, label: "4" },
 ];
+
+export function cloneDefaultTargets(): PatternTarget[] {
+  return PATTERN_4_4.map((t) => ({ ...t }));
+}
 
 /**
  * Variable conducting cycles — waypoints stay fixed, but the guide route
@@ -126,9 +142,12 @@ function edgesFromPath(order: PatternBeat[]): Array<[PatternBeat, PatternBeat]> 
   return edges;
 }
 
-function coordsForPath(order: PatternBeat[]): Array<{ x: number; y: number }> {
+function coordsForPath(
+  order: PatternBeat[],
+  targets: PatternTarget[],
+): Array<{ x: number; y: number }> {
   return order.map((b) => {
-    const t = PATTERN_4_4[b - 1];
+    const t = targets[b - 1] ?? PATTERN_4_4[b - 1];
     return { x: t.x, y: t.y };
   });
 }
@@ -152,16 +171,25 @@ export function pointOnPath(
   };
 }
 
-export function pointOnFigure(measurePhase: number, measureIndex = 0): { x: number; y: number } {
-  return pointOnPath(measurePhase, coordsForPath(pathForMeasure(measureIndex)));
+export function pointOnFigure(
+  measurePhase: number,
+  measureIndex = 0,
+  targets: PatternTarget[] = PATTERN_4_4,
+): { x: number; y: number } {
+  return pointOnPath(measurePhase, coordsForPath(pathForMeasure(measureIndex), targets));
 }
 
 function letterFromScore(score: number): string {
-  if (score >= 90) return "A";
-  if (score >= 80) return "B";
-  if (score >= 70) return "C";
-  if (score >= 60) return "D";
+  if (score >= 85) return "A";
+  if (score >= 72) return "B";
+  if (score >= 58) return "C";
+  if (score >= 45) return "D";
   return "F";
+}
+
+/** Lift mid-range metrics so solid-but-imperfect conducting isn't punished. */
+function softMetric(v: number): number {
+  return clamp(Math.pow(clamp(v, 0, 1), 0.72), 0, 1);
 }
 
 function coachFromBreakdown(b: ConductGradeBreakdown, phrase: number): string {
@@ -188,13 +216,15 @@ const TEMPO_CRAWL = 0.08;
 const TEMPO_START = 0.42;
 
 /**
- * Pattern conducting: fixed ictus points, variable route each measure.
+ * Pattern conducting: personalized ictus points (optional), variable route each measure.
  * Hit lit beats to keep the score at normal tempo; misses crawl the music.
+ * Run startCalibration() to few-shot fit targets to the user's tip positions.
  */
 export class PatternConductDetector {
   private samples: Array<{ t: number; x: number; y: number }> = [];
   private lastHitAt = 0;
   private lastHitBeatIndex = -1;
+  private lastMissBeatIndex = -1;
   private lastPulseBeat = -1;
   private tempoRate = 1;
   private dynamics = 0.45;
@@ -207,25 +237,31 @@ export class PatternConductDetector {
   private velX = 0;
   private velY = 0;
   private tipPrimed = false;
-  private wasNearGuide = false;
   private lastSyncSampleAt = 0;
 
   private timingSamples: number[] = [];
   private accuracySamples: number[] = [];
-  private orderedHits = 0;
-  private totalHitAttempts = 0;
+  private shapeSamples: number[] = [];
+  private cueHits = 0;
   private expectedBeats = 0;
   private dynamicsSamples: number[] = [];
   private gradeFrozen = false;
   private frozenGrade: ConductGrade | null = null;
   private lastScoreTime = 0;
 
+  /** Live figure targets (default or personalized). */
+  private targets: PatternTarget[] = cloneDefaultTargets();
+  private calibrating = false;
+  private calibSamples: TipSample[] = [];
+  private pendingProfile: ConductorProfile | null = null;
+
   reset(): void {
     this.samples = [];
     this.lastHitAt = 0;
     this.lastHitBeatIndex = -1;
+    this.lastMissBeatIndex = -1;
     this.lastPulseBeat = -1;
-    this.tempoRate = TEMPO_START;
+    this.tempoRate = this.calibrating ? 0.92 : TEMPO_START;
     this.dynamics = 0.45;
     this.sync = 0.5;
     this.phrase = 0.4;
@@ -236,12 +272,11 @@ export class PatternConductDetector {
     this.velX = 0;
     this.velY = 0;
     this.tipPrimed = false;
-    this.wasNearGuide = false;
     this.lastSyncSampleAt = 0;
     this.timingSamples = [];
     this.accuracySamples = [];
-    this.orderedHits = 0;
-    this.totalHitAttempts = 0;
+    this.shapeSamples = [];
+    this.cueHits = 0;
     this.expectedBeats = 0;
     this.dynamicsSamples = [];
     this.gradeFrozen = false;
@@ -253,6 +288,39 @@ export class PatternConductDetector {
     this.reset();
   }
 
+  setTargets(targets: PatternTarget[]): void {
+    if (targets.length !== 4) return;
+    this.targets = targets.map((t) => ({ ...t }));
+  }
+
+  getTargets(): PatternTarget[] {
+    return this.targets.map((t) => ({ ...t }));
+  }
+
+  startCalibration(): void {
+    this.calibrating = true;
+    this.calibSamples = [];
+    this.pendingProfile = null;
+    this.targets = cloneDefaultTargets();
+    this.tempoRate = 0.92;
+  }
+
+  cancelCalibration(): void {
+    this.calibrating = false;
+    this.calibSamples = [];
+  }
+
+  getCalibProgress(): CalibProgress {
+    return progressFromSamples(this.calibSamples, this.calibrating);
+  }
+
+  /** One-shot: profile produced when calibration completes. */
+  consumeFittedProfile(): ConductorProfile | null {
+    const p = this.pendingProfile;
+    this.pendingProfile = null;
+    return p;
+  }
+
   freezeGrade(): ConductGrade {
     if (this.gradeFrozen && this.frozenGrade) return this.frozenGrade;
     const g = this.computeGrade();
@@ -260,6 +328,24 @@ export class PatternConductDetector {
     this.gradeFrozen = true;
     this.frozenGrade = g;
     return g;
+  }
+
+  private targetFor(beat: PatternBeat): PatternTarget {
+    return this.targets[beat - 1] ?? PATTERN_4_4[beat - 1];
+  }
+
+  private recordCalibSample(beat: PatternBeat, x: number, y: number, now: number): void {
+    if (!this.calibrating) return;
+    const counts = progressFromSamples(this.calibSamples, true).counts;
+    if (counts[beat - 1] >= CALIB_SAMPLES_PER_BEAT) return;
+    this.calibSamples.push({ beat, x, y, t: now });
+    const prog = progressFromSamples(this.calibSamples, true);
+    if (!prog.ready) return;
+    const fitted = fitTargetsFromSamples(this.calibSamples, PATTERN_4_4, 0.28);
+    if (!fitted) return;
+    this.targets = fitted;
+    this.calibrating = false;
+    this.pendingProfile = profileFromTargets(fitted, prog.counts);
   }
 
   /** Live beat snapshot for UI rAF (works without a hand frame). */
@@ -282,7 +368,7 @@ export class PatternConductDetector {
     const order = pathForMeasure(measureIndex);
     const beatInMeasure = Math.min(3, Math.floor((((beatFloat % 4) + 4) % 4)));
     const nextBeat = order[beatInMeasure];
-    const lit = PATTERN_4_4[nextBeat - 1];
+    const lit = this.targetFor(nextBeat);
     return {
       measurePhase,
       beatPhase,
@@ -290,7 +376,7 @@ export class PatternConductDetector {
       guideX: lit.x,
       guideY: lit.y,
       nextBeat,
-      targets: PATTERN_4_4,
+      targets: this.getTargets(),
       pathEdges: edgesFromPath(order),
     };
   }
@@ -303,26 +389,27 @@ export class PatternConductDetector {
   private computeGrade(): ConductGrade {
     if (this.frozenGrade && this.gradeFrozen) return this.frozenGrade;
 
-    const timing = this.mean(this.timingSamples, 0.5);
-    const accuracy = this.mean(this.accuracySamples, 0.5);
-    const continuity =
+    const timing = softMetric(this.mean(this.timingSamples, 0.62));
+    const accuracy = softMetric(this.mean(this.accuracySamples, 0.62));
+    const hitRate =
       this.expectedBeats > 0
-        ? clamp(this.orderedHits / Math.max(1, this.expectedBeats), 0, 1)
-        : clamp(this.orderedHits / 8, 0, 1);
-    const shape =
-      this.totalHitAttempts > 0
-        ? clamp(this.orderedHits / this.totalHitAttempts, 0, 1)
-        : 0.5;
+        ? this.cueHits / Math.max(1, this.expectedBeats)
+        : clamp(this.cueHits / 6, 0, 1);
+    // Slight boost so landing most cues reads as strong continuity.
+    const continuity = softMetric(clamp(hitRate * 1.2, 0, 1));
+    const shape = softMetric(this.mean(this.shapeSamples, 0.6));
 
-    let expression = 0.5;
+    let expression = 0.55;
     if (this.dynamicsSamples.length >= 4) {
       const m = this.mean(this.dynamicsSamples, 0.5);
       const variance =
         this.dynamicsSamples.reduce((s, v) => s + (v - m) ** 2, 0) /
         this.dynamicsSamples.length;
-      expression = clamp(Math.sqrt(variance) * 4.5 + this.phrase * 0.35, 0.15, 1);
+      expression = softMetric(
+        clamp(Math.sqrt(variance) * 5.5 + this.phrase * 0.4, 0.25, 1),
+      );
     } else {
-      expression = clamp(this.phrase, 0.2, 0.7);
+      expression = softMetric(clamp(this.phrase, 0.35, 0.8));
     }
 
     const breakdown: ConductGradeBreakdown = {
@@ -332,22 +419,18 @@ export class PatternConductDetector {
       shape,
       expression,
     };
-    const score = Math.round(
-      clamp(
-        (timing * 0.28 +
-          accuracy * 0.22 +
-          continuity * 0.22 +
-          shape * 0.16 +
-          expression * 0.12) *
-          100,
-        0,
-        100,
-      ),
-    );
+    const raw =
+      timing * 0.3 +
+      accuracy * 0.22 +
+      continuity * 0.24 +
+      shape * 0.14 +
+      expression * 0.1;
+    // Gentle curve + floor so average conducting lands in B/C, not D/F.
+    const score = Math.round(clamp((0.18 + 0.82 * Math.pow(raw, 0.85)) * 100, 0, 100));
 
     return {
       score,
-      letter: this.orderedHits < 4 ? "—" : letterFromScore(score),
+      letter: this.cueHits < 3 ? "—" : letterFromScore(score),
       breakdown,
       coach: coachFromBreakdown(breakdown, this.phrase),
       frozen: false,
@@ -372,7 +455,7 @@ export class PatternConductDetector {
     const pathEdges = edgesFromPath(order);
     const beatInMeasure = Math.min(3, Math.floor((((beatFloat % 4) + 4) % 4)));
     const segmentBeat = order[beatInMeasure];
-    const lit = PATTERN_4_4[segmentBeat - 1];
+    const lit = this.targetFor(segmentBeat);
     const pulse =
       opts.playing && beatIndex !== this.lastPulseBeat && beatPhase < 0.14;
     if (pulse) this.lastPulseBeat = beatIndex;
@@ -401,9 +484,10 @@ export class PatternConductDetector {
       tipY: this.tipY,
       active,
       nextBeat: segmentBeat,
-      targets: PATTERN_4_4,
+      targets: this.getTargets(),
       pathEdges,
       grade,
+      calib: this.getCalibProgress(),
     });
 
     /** Drift toward crawl when the conductor isn't landing cues. */
@@ -424,10 +508,13 @@ export class PatternConductDetector {
       if (opts.playing) {
         this.dynamics += (0.25 - this.dynamics) * 0.05;
         this.sync += (0.3 - this.sync) * 0.04;
-        decayTempo(0.75);
+        if (this.calibrating) {
+          this.tempoRate += (0.92 - this.tempoRate) * 0.2;
+        } else {
+          decayTempo(0.75);
+        }
       }
       this.samples = [];
-      this.wasNearGuide = false;
       return pack(false, false);
     }
 
@@ -501,34 +588,48 @@ export class PatternConductDetector {
     // Whole beat is fair game while the cue is lit — early/late only affects grade.
     const alreadyHitThisBeat = this.lastHitBeatIndex === beatIndex;
 
+    // Accuracy only while in the cue window / near the target — not while traveling.
     if (opts.playing && now - this.lastSyncSampleAt > 90) {
       this.lastSyncSampleAt = now;
-      const accuracy = clamp(1 - dist / (HIT_RADIUS * 1.35), 0, 1);
-      this.accuracySamples.push(accuracy);
-      if (this.accuracySamples.length > 48) this.accuracySamples.shift();
-      this.totalHitAttempts += 1;
-      if (near) this.orderedHits += 1;
-      this.sync += (accuracy - this.sync) * 0.18;
+      if (near || beatPhase < 0.42 || beatPhase > 0.88) {
+        const accuracy = clamp(1 - dist / (HIT_RADIUS * 1.85), 0, 1);
+        this.accuracySamples.push(accuracy);
+        if (this.accuracySamples.length > 40) this.accuracySamples.shift();
+        this.sync += (accuracy - this.sync) * 0.18;
+      }
     }
 
     // Once per beat while on the lit cue — no enter-edge required (holding early still counts).
     if (opts.playing && near && cool && !alreadyHitThisBeat) {
       const phaseErr = beatPhase > 0.5 ? 1 - beatPhase : beatPhase;
-      const timingHit = clamp(1 - phaseErr / 0.5, 0, 1);
+      // Wide timing forgiveness — mid-beat still scores decently.
+      const timingHit = clamp(1 - phaseErr / 0.62, 0.35, 1);
+      const distScore = clamp(1 - dist / (HIT_RADIUS * 1.25), 0, 1);
       this.timingSamples.push(timingHit);
-      if (this.timingSamples.length > 48) this.timingSamples.shift();
-      this.sync +=
-        (clamp(1 - dist / HIT_RADIUS, 0, 1) * 0.4 + timingHit * 0.6 - this.sync) * 0.35;
+      if (this.timingSamples.length > 40) this.timingSamples.shift();
+      this.shapeSamples.push(distScore * 0.45 + timingHit * 0.55);
+      if (this.shapeSamples.length > 40) this.shapeSamples.shift();
+      this.accuracySamples.push(distScore);
+      if (this.accuracySamples.length > 40) this.accuracySamples.shift();
+      this.sync += (distScore * 0.4 + timingHit * 0.6 - this.sync) * 0.35;
       this.lastHitAt = now;
       this.lastHitBeatIndex = beatIndex;
+      this.cueHits += 1;
       beat = true;
-      boostTempo(timingHit);
-    } else if (opts.playing && pulse && !near && !alreadyHitThisBeat) {
-      this.timingSamples.push(0.25);
-      if (this.timingSamples.length > 48) this.timingSamples.shift();
+      if (!this.calibrating) boostTempo(timingHit);
+      this.recordCalibSample(segmentBeat, tip.x, tip.y, now);
+    } else if (
+      opts.playing &&
+      !alreadyHitThisBeat &&
+      this.lastHitBeatIndex !== beatIndex &&
+      this.lastMissBeatIndex !== beatIndex &&
+      beatPhase > 0.82
+    ) {
+      // Soft miss — once late in the beat, not a harsh zero.
+      this.timingSamples.push(0.45);
+      if (this.timingSamples.length > 40) this.timingSamples.shift();
+      this.lastMissBeatIndex = beatIndex;
     }
-
-    this.wasNearGuide = near;
 
     if (opts.playing) {
       if (
@@ -540,8 +641,12 @@ export class PatternConductDetector {
         this.sync += (0.32 - this.sync) * 0.06;
       }
 
-      // Hit-gated tempo: keep normal pace only while cues are landed.
-      if (!beat) {
+      if (this.calibrating) {
+        // Steady tempo while learning the user's figure.
+        this.tempoRate += (0.92 - this.tempoRate) * 0.25;
+        this.tempoRate = clamp(this.tempoRate, TEMPO_CRAWL, TEMPO_MAX);
+      } else if (!beat) {
+        // Hit-gated tempo: keep normal pace only while cues are landed.
         const sinceHitMs = this.lastHitAt > 0 ? now - this.lastHitAt : Infinity;
         const missedCurrent =
           this.lastHitBeatIndex !== beatIndex && beatPhase > 0.62;
@@ -553,7 +658,6 @@ export class PatternConductDetector {
               : clamp((sinceHitMs - beatPeriodMs) / beatPeriodMs, 0.35, 1);
           decayTempo(late);
         } else if (this.lastHitBeatIndex === beatIndex) {
-          // Just hit this beat — settle at full tempo until the next cue.
           this.tempoRate += (TEMPO_MAX - this.tempoRate) * 0.1;
           this.tempoRate = clamp(this.tempoRate, TEMPO_CRAWL, TEMPO_MAX);
         }
@@ -580,9 +684,10 @@ export class PatternConductDetector {
       tipY: this.tipY,
       active: true,
       nextBeat: segmentBeat,
-      targets: PATTERN_4_4,
+      targets: this.getTargets(),
       pathEdges,
       grade: this.gradeFrozen && this.frozenGrade ? this.frozenGrade : this.computeGrade(),
+      calib: this.getCalibProgress(),
     };
   }
 }
