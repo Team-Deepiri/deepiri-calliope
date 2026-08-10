@@ -8,7 +8,25 @@ import { useHandTracker } from "../gestures/useHandTracker";
 import { useBatonOrchestra } from "../gestures/useBatonOrchestra";
 import { stashGesturesStudioImport } from "../gestures/studioHandoff";
 import type { Landmark } from "../gestures/deriveSignals";
+import type { ConductMode } from "../gestures/batonDetect";
 import "../styles/gestures.css";
+
+function coachCopy(opts: {
+  conductMode: ConductMode;
+  calibrating: boolean;
+  hasProfile: boolean;
+}): string {
+  if (opts.conductMode !== "pattern") {
+    return "Free tempo: stroke rate sets tempo; stroke size sets dynamics. Left hand = bass / mid / treble.";
+  }
+  if (opts.calibrating) {
+    return "Calibrating: conduct to each lit beat — we’ll learn your figure (~3 samples per beat). Tempo stays steady.";
+  }
+  if (opts.hasProfile) {
+    return "Pattern (your figure): hit lit beats to keep tempo. Miss and it crawls. Left hand = bass / mid / treble.";
+  }
+  return "Pattern: hit lit beat dots to keep the song at normal tempo — miss and it crawls. Calibrate to personalize the figure.";
+}
 
 function Meter({
   label,
@@ -113,14 +131,11 @@ export function Gestures() {
     navigate("/studio");
   }
 
-  const coachText =
-    conductMode === "pattern"
-      ? calib.active
-        ? "Calibrating: conduct to each lit beat — we’ll learn your figure (~3 samples per beat). Tempo stays steady."
-        : hasProfile
-          ? "Pattern (your figure): hit lit beats to keep tempo. Miss and it crawls. Left hand = bass / mid / treble."
-          : "Pattern: hit lit beat dots to keep the song at normal tempo — miss and it crawls. Calibrate to personalize the figure."
-      : "Free tempo: stroke rate sets tempo; stroke size sets dynamics. Left hand = bass / mid / treble.";
+  const coachText = coachCopy({
+    conductMode,
+    calibrating: calib.active,
+    hasProfile,
+  });
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>

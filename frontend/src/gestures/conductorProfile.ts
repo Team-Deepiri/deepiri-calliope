@@ -78,7 +78,6 @@ function median(xs: number[]): number {
 export function fitTargetsFromSamples(
   samples: TipSample[],
   prior: PatternTarget[],
-  _priorBlend = 0.28,
 ): PatternTarget[] | null {
   if (prior.length !== 4) return null;
   const byBeat: Record<PatternBeat, TipSample[]> = { 1: [], 2: [], 3: [], 4: [] };

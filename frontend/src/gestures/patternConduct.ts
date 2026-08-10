@@ -75,14 +75,24 @@ export type PatternUpdateOpts = {
 
 const INDEX_TIP = 8;
 const WRIST = 0;
-/** Scaled with the compressed cue-screen diamond so adjacent beats don't overlap. */
+/**
+ * Hit disk in landmark space. Tuned to the cue-screen diamond (~0.36×0.20)
+ * so adjacent beats (~0.20 apart) don't overlap into auto-hits.
+ */
 const HIT_RADIUS = 0.11;
+/** Min ms between accepted hits — keeps double-fires down without feeling laggy. */
 const HIT_COOLDOWN_MS = 100;
+/** Aim-ahead for hit tests (seconds of tip velocity). */
 const TIP_LEAD_SEC = 0.065;
+/** Cap on aim-ahead displacement so fast flicks don't overshoot wildly. */
 const TIP_LEAD_MAX = 0.038;
+/** EMA alpha when the tip is nearly still — heavier smoothing. */
 const TIP_SMOOTH_STILL = 0.28;
+/** EMA alpha when moving — tracks the hand more tightly. */
 const TIP_SMOOTH_MOVE = 0.72;
+/** Landmark speed that maps to full TIP_SMOOTH_MOVE. */
 const TIP_SPEED_REF = 1.1;
+/** EMA for tip velocity estimates. */
 const VEL_SMOOTH = 0.28;
 
 /** Cue diamond floats above the orchestra (top band of the stage). */
@@ -216,8 +226,11 @@ function coachFromBreakdown(b: ConductGradeBreakdown, phrase: number): string {
 
 /** Normal score tempo — never faster than this in pattern mode. */
 const TEMPO_MAX = 1;
-/** Near-stop when cues are missed — you must hit to keep the song moving. */
-const TEMPO_CRAWL = 0.08;
+/**
+ * Miss-penalty floor — slow enough to feel like a crawl, high enough that
+ * playback doesn't stall (aligned with OrchestraEngine.setTempoRate).
+ */
+const TEMPO_CRAWL = 0.15;
 /** Gentle start until the first cue hit. */
 const TEMPO_START = 0.42;
 
@@ -355,7 +368,7 @@ export class PatternConductDetector {
     this.calibSamples.push({ beat, x, y, t: now });
     const prog = progressFromSamples(this.calibSamples, true);
     if (!prog.ready) return;
-    const fitted = fitTargetsFromSamples(this.calibSamples, PATTERN_4_4, 0.28);
+    const fitted = fitTargetsFromSamples(this.calibSamples, PATTERN_4_4);
     if (!fitted) return;
     this.targets = fitted;
     this.calibrating = false;

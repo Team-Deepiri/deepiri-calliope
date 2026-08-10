@@ -377,7 +377,8 @@ export class OrchestraEngine {
   }
 
   setTempoRate(rate: number): void {
-    this.tempoRate = Math.min(1.45, Math.max(0.05, rate));
+    // Floor ~crawl pace — low enough to punish misses, high enough to avoid a full stall.
+    this.tempoRate = Math.min(1.45, Math.max(0.15, rate));
   }
 
   setDynamics(level: number): void {
