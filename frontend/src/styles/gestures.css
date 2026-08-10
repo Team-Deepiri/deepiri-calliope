@@ -1,6 +1,6 @@
 .gestures-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
+  grid-template-columns: minmax(0, 1.65fr) minmax(240px, 0.7fr);
   gap: 1.25rem;
   align-items: start;
 }
@@ -21,14 +21,15 @@
   aspect-ratio: 16 / 10;
   border-radius: 12px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.45);
+  background: linear-gradient(160deg, #1e293b 0%, #0f172a 45%, #020617 100%);
   border: 1px solid var(--panel-border);
 }
 
 .gestures-stage--live {
-  border-color: rgba(129, 140, 248, 0.45);
+  border-color: rgba(251, 191, 36, 0.4);
 }
 
+/* Capture stays mounted for MediaPipe; feed is never shown. */
 .gestures-stage__video,
 .gestures-stage__canvas {
   position: absolute;
@@ -36,11 +37,34 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1);
+  opacity: 0;
+  pointer-events: none;
 }
 
-.gestures-stage__canvas {
+.gestures-stage__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   pointer-events: none;
+}
+
+.gestures-conduct-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.gestures-conduct-overlay--live .gestures-orchestra-stage {
+  opacity: 1;
+}
+
+.gestures-conduct-overlay--pulse .gestures-orch-section {
+  filter: brightness(1.18);
+}
+
+.gestures-orchestra-stage--camera {
+  opacity: 1;
 }
 
 .gestures-stage__placeholder {
@@ -54,7 +78,7 @@
   color: var(--muted);
   text-align: center;
   padding: 1rem;
-  z-index: 1;
+  z-index: 3;
 }
 
 .gestures-stage__placeholder span {
@@ -598,7 +622,7 @@
 
 .gestures-baton-trail {
   position: relative;
-  height: 96px;
+  height: 180px;
   margin: 0.65rem 0 0.15rem;
   border-radius: 10px;
   border: 1px dashed var(--panel-border);
@@ -607,7 +631,7 @@
 }
 
 .gestures-baton-trail--pattern {
-  height: 160px;
+  height: 220px;
 }
 
 .gestures-baton-trail--live {
@@ -620,9 +644,46 @@
   border-color: rgba(251, 191, 36, 0.4);
 }
 
+.gestures-orchestra-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.gestures-conductor__lead {
+  filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.25));
+}
+
+.gestures-orchestra-stage--live {
+  opacity: 1;
+}
+
+.gestures-orchestra-stage--pulse .gestures-orch-section {
+  filter: brightness(1.15);
+}
+
+.gestures-orch-section {
+  transition:
+    opacity 0.12s ease,
+    transform 0.14s ease,
+    filter 0.12s ease;
+}
+
+.gestures-conductor__arm,
+.gestures-conductor__baton,
+.gestures-conductor__tip {
+  transition: none;
+}
+
 .gestures-pattern-path {
   position: absolute;
   inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -630,23 +691,25 @@
 
 .gestures-pattern-node {
   position: absolute;
-  width: 28px;
-  height: 28px;
-  margin: -14px 0 0 -14px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  color: rgba(148, 163, 184, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(15, 23, 42, 0.4);
+  color: rgba(226, 232, 240, 0.7);
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
   pointer-events: none;
 }
 
 .gestures-pattern-node--waypoint {
-  opacity: 0.7;
+  opacity: 0.55;
   transition:
     opacity 0.15s ease,
     transform 0.12s ease,
@@ -654,6 +717,26 @@
     border-color 0.12s ease,
     box-shadow 0.12s ease,
     color 0.12s ease;
+}
+
+.gestures-pattern-node--mid {
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  opacity: 0.45;
+  border-color: rgba(251, 191, 36, 0.35);
+  background: rgba(15, 23, 42, 0.35);
+  font-size: 0;
+}
+
+.gestures-pattern-node--mid-active {
+  opacity: 1;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-color: rgba(251, 191, 36, 0.95);
+  background: rgba(253, 230, 138, 0.9);
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.55);
 }
 
 .gestures-pattern-node--active {

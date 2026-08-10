@@ -32,6 +32,7 @@ export type BatonLevels = {
   sync: number;
   phrase: number;
   beatPhase: number;
+  cuePhase: number;
   measurePhase: number;
   guideX: number;
   guideY: number;
@@ -130,6 +131,7 @@ export function useBatonOrchestra(enabled: boolean) {
     sync: 0.55,
     phrase: 0.45,
     beatPhase: 0,
+    cuePhase: 0,
     measurePhase: 0,
     guideX: 0.5,
     guideY: 0.78,
@@ -292,6 +294,7 @@ export function useBatonOrchestra(enabled: boolean) {
         guideX: peek.guideX,
         guideY: peek.guideY,
         beatPhase: peek.beatPhase,
+        cuePhase: peek.cuePhase,
         pulse: peek.pulse,
         nextBeat: peek.nextBeat,
         targets: peek.targets,
@@ -469,6 +472,7 @@ export function useBatonOrchestra(enabled: boolean) {
       let tipY = 0.5;
       let pulse = false;
       let beatPhase = 0;
+      let cuePhase = 0;
       let measurePhase = 0;
       let guideX = 0.5;
       let guideY = 0.78;
@@ -497,6 +501,7 @@ export function useBatonOrchestra(enabled: boolean) {
         beat = pat.beat;
         pulse = pat.pulse;
         beatPhase = pat.beatPhase;
+        cuePhase = pat.cuePhase;
         measurePhase = pat.measurePhase;
         guideX = pat.guideX;
         guideY = pat.guideY;
@@ -564,6 +569,7 @@ export function useBatonOrchestra(enabled: boolean) {
           sync,
           phrase,
           beatPhase,
+          cuePhase,
           measurePhase,
           guideX,
           guideY,

@@ -44,6 +44,8 @@ export type PatternConductState = {
   beat: boolean;
   pulse: boolean;
   beatPhase: number;
+  /** 0–1 within the current beat; &lt;0.45 primary ictus, else mid-path cue. */
+  cuePhase: number;
   measurePhase: number;
   guideX: number;
   guideY: number;
@@ -79,12 +81,12 @@ const TIP_SMOOTH_MOVE = 0.72;
 const TIP_SPEED_REF = 1.1;
 const VEL_SMOOTH = 0.28;
 
-/** Fixed ictus points in landmark space (mirrored on screen via 1−x). */
+/** Cue diamond floats in the mid-air well (between orchestra and podium). */
 export const PATTERN_4_4: PatternTarget[] = [
-  { beat: 1, x: 0.5, y: 0.78, label: "1" },
-  { beat: 2, x: 0.74, y: 0.52, label: "2" },
-  { beat: 3, x: 0.26, y: 0.52, label: "3" },
-  { beat: 4, x: 0.5, y: 0.22, label: "4" },
+  { beat: 1, x: 0.5, y: 0.72, label: "1" },
+  { beat: 2, x: 0.78, y: 0.5, label: "2" },
+  { beat: 3, x: 0.22, y: 0.5, label: "3" },
+  { beat: 4, x: 0.5, y: 0.28, label: "4" },
 ];
 
 export function cloneDefaultTargets(): PatternTarget[] {
@@ -352,6 +354,7 @@ export class PatternConductDetector {
   peekGuide(scoreTime: number, baseBpm: number, playing: boolean): {
     measurePhase: number;
     beatPhase: number;
+    cuePhase: number;
     pulse: boolean;
     guideX: number;
     guideY: number;
@@ -368,10 +371,17 @@ export class PatternConductDetector {
     const order = pathForMeasure(measureIndex);
     const beatInMeasure = Math.min(3, Math.floor((((beatFloat % 4) + 4) % 4)));
     const nextBeat = order[beatInMeasure];
-    const lit = this.targetFor(nextBeat);
+    const nextNext = order[Math.min(order.length - 1, beatInMeasure + 1)];
+    const primary = this.targetFor(nextBeat);
+    const secondary = this.targetFor(nextNext);
+    const useMid = beatPhase >= 0.45;
+    const lit = useMid
+      ? { x: (primary.x + secondary.x) / 2, y: (primary.y + secondary.y) / 2 }
+      : primary;
     return {
       measurePhase,
       beatPhase,
+      cuePhase: beatPhase,
       pulse: playing && beatPhase < 0.14,
       guideX: lit.x,
       guideY: lit.y,
@@ -455,7 +465,15 @@ export class PatternConductDetector {
     const pathEdges = edgesFromPath(order);
     const beatInMeasure = Math.min(3, Math.floor((((beatFloat % 4) + 4) % 4)));
     const segmentBeat = order[beatInMeasure];
-    const lit = this.targetFor(segmentBeat);
+    const nextNext = order[Math.min(order.length - 1, beatInMeasure + 1)];
+    const primary = this.targetFor(segmentBeat);
+    const secondary = this.targetFor(nextNext);
+    const midCue = {
+      x: (primary.x + secondary.x) / 2,
+      y: (primary.y + secondary.y) / 2,
+    };
+    const useMid = beatPhase >= 0.45;
+    const lit = useMid ? midCue : primary;
     const pulse =
       opts.playing && beatIndex !== this.lastPulseBeat && beatPhase < 0.14;
     if (pulse) this.lastPulseBeat = beatIndex;
@@ -477,6 +495,7 @@ export class PatternConductDetector {
       beat,
       pulse,
       beatPhase,
+      cuePhase: beatPhase,
       measurePhase,
       guideX: lit.x,
       guideY: lit.y,
@@ -576,12 +595,19 @@ export class PatternConductDetector {
       this.phrase += (phraseTarget - this.phrase) * 0.28;
     }
 
-    const dist = Math.min(
-      Math.hypot(tip.x - lit.x, tip.y - lit.y),
-      Math.hypot(this.smoothX - lit.x, this.smoothY - lit.y),
-      Math.hypot(aimX - lit.x, aimY - lit.y),
+    const distPrimary = Math.min(
+      Math.hypot(tip.x - primary.x, tip.y - primary.y),
+      Math.hypot(this.smoothX - primary.x, this.smoothY - primary.y),
+      Math.hypot(aimX - primary.x, aimY - primary.y),
     );
-    const near = dist <= HIT_RADIUS;
+    const distMid = Math.min(
+      Math.hypot(tip.x - midCue.x, tip.y - midCue.y),
+      Math.hypot(this.smoothX - midCue.x, this.smoothY - midCue.y),
+      Math.hypot(aimX - midCue.x, aimY - midCue.y),
+    );
+    const dist = Math.min(distPrimary, distMid);
+    const near =
+      distPrimary <= HIT_RADIUS || distMid <= HIT_RADIUS * 0.95;
 
     let beat = false;
     const cool = now - this.lastHitAt > Math.min(HIT_COOLDOWN_MS, beatPeriodMs * 0.28);
@@ -677,6 +703,7 @@ export class PatternConductDetector {
       beat,
       pulse,
       beatPhase,
+      cuePhase: beatPhase,
       measurePhase,
       guideX: lit.x,
       guideY: lit.y,
