@@ -1,6 +1,6 @@
 import type { PatternBeat, PatternTarget } from "./patternConduct";
 
-const STORAGE_KEY = "calliope.conductorProfile.v2";
+const STORAGE_KEY = "calliope.conductorProfile.v4";
 
 /** Samples required per beat before the profile can be fit. */
 export const CALIB_SAMPLES_PER_BEAT = 3;
@@ -13,7 +13,7 @@ export type TipSample = {
 };
 
 export type ConductorProfile = {
-  version: 2;
+  version: 4;
   targets: PatternTarget[];
   /** How many samples contributed to each beat when fit. */
   sampleCounts: [number, number, number, number];
@@ -170,7 +170,7 @@ export function loadConductorProfile(): ConductorProfile | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ConductorProfile;
-    if (parsed?.version !== 2 || !Array.isArray(parsed.targets) || parsed.targets.length !== 4) {
+    if (parsed?.version !== 4 || !Array.isArray(parsed.targets) || parsed.targets.length !== 4) {
       return null;
     }
     return parsed;
@@ -200,7 +200,7 @@ export function profileFromTargets(
   sampleCounts: [number, number, number, number],
 ): ConductorProfile {
   return {
-    version: 2,
+    version: 4,
     targets: targets.map((t) => ({ ...t })),
     sampleCounts,
     updatedAt: Date.now(),

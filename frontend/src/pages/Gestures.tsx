@@ -146,6 +146,8 @@ export function Gestures() {
                 beat={batonLevels.beat}
                 tipX={batonLevels.tipX}
                 tipY={batonLevels.tipY}
+                wristX={batonLevels.wristX}
+                wristY={batonLevels.wristY}
                 nextBeat={batonLevels.nextBeat}
                 cuePhase={batonLevels.cuePhase}
                 targets={batonLevels.targets}

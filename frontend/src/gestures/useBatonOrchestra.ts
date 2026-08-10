@@ -44,6 +44,8 @@ export type BatonLevels = {
   pulse: boolean;
   tipX: number;
   tipY: number;
+  wristX: number;
+  wristY: number;
   nextBeat: PatternBeat;
   targets: PatternTarget[];
   pathEdges: Array<[PatternBeat, PatternBeat]>;
@@ -106,7 +108,7 @@ export function useBatonOrchestra(enabled: boolean) {
   const scoreRef = useRef<OrchestraScore | null>(null);
   const armedRef = useRef(false);
   const lastUi = useRef(0);
-  const levelsTipRef = useRef({ x: 0.5, y: 0.5 });
+  const levelsTipRef = useRef({ x: 0.5, y: 0.5, wx: 0.5, wy: 0.62 });
   const lastPlaybackRef = useRef<BatonPlayback>("idle");
   const groupsRef = useRef<Record<OrchestraGroupId, number>>({
     bass: 0.75,
@@ -134,7 +136,7 @@ export function useBatonOrchestra(enabled: boolean) {
     cuePhase: 0,
     measurePhase: 0,
     guideX: 0.5,
-    guideY: 0.78,
+    guideY: 0.3,
     bass: 0.75,
     mid: 0.75,
     treble: 0.75,
@@ -143,6 +145,8 @@ export function useBatonOrchestra(enabled: boolean) {
     pulse: false,
     tipX: 0.5,
     tipY: 0.5,
+    wristX: 0.5,
+    wristY: 0.62,
     nextBeat: 1,
     targets: PATTERN_4_4,
     pathEdges: [
@@ -470,12 +474,14 @@ export function useBatonOrchestra(enabled: boolean) {
       let beat = false;
       let tipX = 0.5;
       let tipY = 0.5;
+      let wristX = 0.5;
+      let wristY = 0.62;
       let pulse = false;
       let beatPhase = 0;
       let cuePhase = 0;
       let measurePhase = 0;
       let guideX = 0.5;
-      let guideY = 0.78;
+      let guideY = 0.3;
       let active = false;
       let nextBeat: PatternBeat = 1;
       let targets = PATTERN_4_4;
@@ -507,6 +513,8 @@ export function useBatonOrchestra(enabled: boolean) {
         guideY = pat.guideY;
         tipX = pat.tipX;
         tipY = pat.tipY;
+        wristX = pat.wristX;
+        wristY = pat.wristY;
         active = pat.active;
         nextBeat = pat.nextBeat;
         targets = pat.targets;
@@ -529,6 +537,8 @@ export function useBatonOrchestra(enabled: boolean) {
         beat = baton.beat;
         tipX = baton.tipX;
         tipY = baton.tipY;
+        wristX = baton.wristX;
+        wristY = baton.wristY;
         active = baton.active;
       }
 
@@ -546,10 +556,11 @@ export function useBatonOrchestra(enabled: boolean) {
 
       const now = performance.now();
       const tipMoved =
-        Math.hypot(tipX - levelsTipRef.current.x, tipY - levelsTipRef.current.y) > 0.004;
+        Math.hypot(tipX - levelsTipRef.current.x, tipY - levelsTipRef.current.y) > 0.004 ||
+        Math.hypot(wristX - levelsTipRef.current.wx, wristY - levelsTipRef.current.wy) > 0.004;
       if (now - lastUi.current > 16 || beat || pulse || tipMoved) {
         lastUi.current = now;
-        levelsTipRef.current = { x: tipX, y: tipY };
+        levelsTipRef.current = { x: tipX, y: tipY, wx: wristX, wy: wristY };
         const dur = engine.duration || 1;
         const nextPlayback = playbackFromEngine(engine);
         if (nextPlayback === "ended" && lastPlaybackRef.current === "playing") {
@@ -578,6 +589,8 @@ export function useBatonOrchestra(enabled: boolean) {
           treble: groups.treble,
           tipX,
           tipY,
+          wristX,
+          wristY,
           beat: beat && engine.isPlaying,
           pulse: pulse && engine.isPlaying,
           progress: Math.min(1, engine.currentScoreTime / dur),

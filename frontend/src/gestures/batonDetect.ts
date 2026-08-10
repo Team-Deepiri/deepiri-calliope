@@ -15,6 +15,9 @@ export type BatonState = {
   beat: boolean;
   tipY: number;
   tipX: number;
+  /** Right wrist (landmark space) for conductor arm IK. */
+  wristX: number;
+  wristY: number;
   active: boolean;
 };
 
@@ -24,6 +27,7 @@ export type BatonUpdateOpts = {
 };
 
 const INDEX_TIP = 8;
+const WRIST = 0;
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
@@ -42,6 +46,8 @@ export class BatonDetector {
   private phrase = 0.45;
   private tipX = 0.5;
   private tipY = 0.5;
+  private wristX = 0.5;
+  private wristY = 0.62;
 
   reset(): void {
     this.samples = [];
@@ -51,6 +57,10 @@ export class BatonDetector {
     this.dynamics = 0.55;
     this.sync = 0.5;
     this.phrase = 0.45;
+    this.tipX = 0.5;
+    this.tipY = 0.5;
+    this.wristX = 0.5;
+    this.wristY = 0.62;
   }
 
   update(
@@ -73,13 +83,18 @@ export class BatonDetector {
         beat: false,
         tipX: this.tipX,
         tipY: this.tipY,
+        wristX: this.wristX,
+        wristY: this.wristY,
         active: false,
       };
     }
 
     const tip = rightLandmarks[INDEX_TIP];
+    const wrist = rightLandmarks[WRIST];
     this.tipX = tip.x;
     this.tipY = tip.y;
+    this.wristX = wrist.x;
+    this.wristY = wrist.y;
     this.samples.push({ t: now, y: tip.y, x: tip.x });
     this.samples = this.samples.filter((s) => now - s.t <= 320);
 
@@ -142,6 +157,8 @@ export class BatonDetector {
       beat,
       tipX: this.tipX,
       tipY: this.tipY,
+      wristX: this.wristX,
+      wristY: this.wristY,
       active: true,
     };
   }

@@ -51,6 +51,9 @@ export type PatternConductState = {
   guideY: number;
   tipX: number;
   tipY: number;
+  /** Right wrist (landmark space) for conductor arm IK. */
+  wristX: number;
+  wristY: number;
   active: boolean;
   nextBeat: PatternBeat;
   targets: PatternTarget[];
@@ -71,6 +74,7 @@ export type PatternUpdateOpts = {
 };
 
 const INDEX_TIP = 8;
+const WRIST = 0;
 /** Generous disk — webcam jitter + tip smoothing need headroom. */
 const HIT_RADIUS = 0.22;
 const HIT_COOLDOWN_MS = 100;
@@ -81,12 +85,12 @@ const TIP_SMOOTH_MOVE = 0.72;
 const TIP_SPEED_REF = 1.1;
 const VEL_SMOOTH = 0.28;
 
-/** Cue diamond floats in the mid-air well (between orchestra and podium). */
+/** Cue diamond floats above the orchestra (top band of the stage). */
 export const PATTERN_4_4: PatternTarget[] = [
-  { beat: 1, x: 0.5, y: 0.72, label: "1" },
-  { beat: 2, x: 0.78, y: 0.5, label: "2" },
-  { beat: 3, x: 0.22, y: 0.5, label: "3" },
-  { beat: 4, x: 0.5, y: 0.28, label: "4" },
+  { beat: 1, x: 0.5, y: 0.3, label: "1" },
+  { beat: 2, x: 0.68, y: 0.19, label: "2" },
+  { beat: 3, x: 0.32, y: 0.19, label: "3" },
+  { beat: 4, x: 0.5, y: 0.1, label: "4" },
 ];
 
 export function cloneDefaultTargets(): PatternTarget[] {
@@ -234,8 +238,12 @@ export class PatternConductDetector {
   private phrase = 0.4;
   private tipX = 0.5;
   private tipY = 0.5;
+  private wristX = 0.5;
+  private wristY = 0.62;
   private smoothX = 0.5;
   private smoothY = 0.5;
+  private smoothWristX = 0.5;
+  private smoothWristY = 0.62;
   private velX = 0;
   private velY = 0;
   private tipPrimed = false;
@@ -269,8 +277,12 @@ export class PatternConductDetector {
     this.phrase = 0.4;
     this.tipX = 0.5;
     this.tipY = 0.5;
+    this.wristX = 0.5;
+    this.wristY = 0.62;
     this.smoothX = 0.5;
     this.smoothY = 0.5;
+    this.smoothWristX = 0.5;
+    this.smoothWristY = 0.62;
     this.velX = 0;
     this.velY = 0;
     this.tipPrimed = false;
@@ -501,6 +513,8 @@ export class PatternConductDetector {
       guideY: lit.y,
       tipX: this.tipX,
       tipY: this.tipY,
+      wristX: this.wristX,
+      wristY: this.wristY,
       active,
       nextBeat: segmentBeat,
       targets: this.getTargets(),
@@ -538,6 +552,7 @@ export class PatternConductDetector {
     }
 
     const tip = rightLandmarks[INDEX_TIP];
+    const wrist = rightLandmarks[WRIST];
     this.samples.push({ t: now, x: tip.x, y: tip.y });
     this.samples = this.samples.filter((s) => now - s.t <= 280);
 
@@ -552,6 +567,8 @@ export class PatternConductDetector {
     if (!this.tipPrimed) {
       this.smoothX = tip.x;
       this.smoothY = tip.y;
+      this.smoothWristX = wrist.x;
+      this.smoothWristY = wrist.y;
       this.tipPrimed = true;
     } else {
       const speed = Math.hypot(this.velX, this.velY);
@@ -559,6 +576,8 @@ export class PatternConductDetector {
       const alpha = TIP_SMOOTH_STILL + (TIP_SMOOTH_MOVE - TIP_SMOOTH_STILL) * move;
       this.smoothX += (tip.x - this.smoothX) * alpha;
       this.smoothY += (tip.y - this.smoothY) * alpha;
+      this.smoothWristX += (wrist.x - this.smoothWristX) * 0.45;
+      this.smoothWristY += (wrist.y - this.smoothWristY) * 0.45;
     }
 
     let lx = this.velX * TIP_LEAD_SEC;
@@ -572,6 +591,8 @@ export class PatternConductDetector {
     const aimY = clamp(this.smoothY + ly, 0.02, 0.98);
     this.tipX = this.smoothX;
     this.tipY = this.smoothY;
+    this.wristX = this.smoothWristX;
+    this.wristY = this.smoothWristY;
 
     if (this.samples.length >= 3) {
       let pathLen = 0;
@@ -709,6 +730,8 @@ export class PatternConductDetector {
       guideY: lit.y,
       tipX: this.tipX,
       tipY: this.tipY,
+      wristX: this.wristX,
+      wristY: this.wristY,
       active: true,
       nextBeat: segmentBeat,
       targets: this.getTargets(),

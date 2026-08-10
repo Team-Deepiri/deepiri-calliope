@@ -21,6 +21,8 @@ export type ConductOverlayProps = {
   beat: boolean;
   tipX: number;
   tipY: number;
+  wristX: number;
+  wristY: number;
   nextBeat: PatternBeat;
   /** 0 = primary ictus, 1 = mid-path cue within the beat. */
   cuePhase: number;
@@ -37,7 +39,7 @@ function midpoint(
 
 /**
  * Full-bleed conducting overlay for the camera stage:
- * orchestra backdrop, pattern cues (primary + mid-path), tip cursor.
+ * hall + orchestra backdrop, pattern cues above the orchestra, tip cursor.
  */
 export function ConductOverlay({
   conductMode,
@@ -50,6 +52,8 @@ export function ConductOverlay({
   beat,
   tipX,
   tipY,
+  wristX,
+  wristY,
   nextBeat,
   cuePhase,
   targets,
@@ -95,11 +99,13 @@ export function ConductOverlay({
         beat={beat}
         tipX={tipX}
         tipY={tipY}
+        wristX={wristX}
+        wristY={wristY}
         playing={playing}
       />
 
       {conductMode === "pattern" && (
-        <>
+        <div className="gestures-pattern-hud">
           <svg className="gestures-pattern-path" viewBox="0 0 100 100" preserveAspectRatio="none">
             {FIGURE_EDGES.map(([a, b]) => {
               const pa = targets.find((t) => t.beat === a);
@@ -112,8 +118,8 @@ export function ConductOverlay({
                   y1={pa.y * 100}
                   x2={(1 - pb.x) * 100}
                   y2={pb.y * 100}
-                        stroke="rgba(148, 163, 184, 0.16)"
-                        strokeWidth="0.9"
+                  stroke="rgba(148, 163, 184, 0.16)"
+                  strokeWidth="0.9"
                   strokeLinecap="round"
                 />
               );
@@ -129,8 +135,8 @@ export function ConductOverlay({
                   y1={pa.y * 100}
                   x2={(1 - pb.x) * 100}
                   y2={pb.y * 100}
-                        stroke="rgba(251, 191, 36, 0.62)"
-                        strokeWidth="1.75"
+                  stroke="rgba(251, 191, 36, 0.62)"
+                  strokeWidth="1.75"
                   strokeLinecap="round"
                 />
               );
@@ -170,7 +176,7 @@ export function ConductOverlay({
               }}
             />
           ))}
-        </>
+        </div>
       )}
 
       <span
