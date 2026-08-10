@@ -147,15 +147,21 @@ export function fitTargetsFromSamples(
   }
 
   // Enforce a minimum span so the figure can't become a blob.
-  const minSpan = 0.22;
+  // Tuned to the cue-screen diamond (~0.36 × 0.20), not the old mid-air figure.
+  const minSpanX = 0.28;
+  const minSpanY = 0.16;
   const xs = fitted.map((t) => t.x);
   const ys = fitted.map((t) => t.y);
   const spanX = Math.max(...xs) - Math.min(...xs);
   const spanY = Math.max(...ys) - Math.min(...ys);
-  if (spanX < minSpan || spanY < minSpan) {
+  if (spanX < minSpanX || spanY < minSpanY) {
     const cx = fitted.reduce((s, t) => s + t.x, 0) / 4;
     const cy = fitted.reduce((s, t) => s + t.y, 0) / 4;
-    const boost = Math.max(minSpan / Math.max(spanX, 1e-4), minSpan / Math.max(spanY, 1e-4), 1);
+    const boost = Math.max(
+      minSpanX / Math.max(spanX, 1e-4),
+      minSpanY / Math.max(spanY, 1e-4),
+      1,
+    );
     for (const t of fitted) {
       t.x = clamp(cx + (t.x - cx) * boost, 0.08, 0.92);
       t.y = clamp(cy + (t.y - cy) * boost, 0.08, 0.92);
@@ -190,6 +196,9 @@ export function saveConductorProfile(profile: ConductorProfile): void {
 export function clearConductorProfile(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
+    // Drop superseded keys so stale mid-air figures don't linger.
+    localStorage.removeItem("calliope.conductorProfile.v2");
+    localStorage.removeItem("calliope.conductorProfile.v3");
   } catch {
     /* ignore */
   }

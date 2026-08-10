@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 type OrchestraStageProps = {
   bass: number;
   mid: number;
@@ -113,7 +115,32 @@ const BODY_FILL = "rgba(22, 28, 40, 0.92)";
 const HEAD_FILL = "rgba(232, 210, 180, 0.78)";
 const SHIRT_FILL = "rgba(244, 244, 248, 0.55)";
 
-function MusicianSilhouette({
+type SeatedPlayer = { x: number; y: number; kind: MusicianKind; scale: number };
+
+/** Static riser seating — rebuilt only once, not on every tip/wrist frame. */
+const ORCHESTRA_WINDS: SeatedPlayer[] = playerMarks(49, 11, 160, 4.5, 20).map((p, i) => ({
+  ...p,
+  kind: (["flute", "clarinet", "trumpet", "horn"] as const)[i % 4],
+  scale: 0.92,
+}));
+const ORCHESTRA_STRINGS_BACK: SeatedPlayer[] = playerMarks(57, 14, 162, 5, 19).map((p, i) => ({
+  ...p,
+  kind: (i < 4 || i > 9 ? "viola" : "violin") as MusicianKind,
+  scale: 0.98,
+}));
+const ORCHESTRA_STRINGS_FRONT: SeatedPlayer[] = playerMarks(66, 12, 160, 5.5, 20).map((p, i) => ({
+  ...p,
+  kind: (i < 3 || i > 8 ? "cello" : "violin") as MusicianKind,
+  scale: 1.05,
+}));
+const ORCHESTRA_BASSES: SeatedPlayer[] = playerMarks(75, 7, 146, 3.5, 27).map((p) => ({
+  ...p,
+  kind: "bass" as const,
+  scale: 1.12,
+}));
+const MUSIC_STAND_XS = [48, 72, 100, 128, 152] as const;
+
+const MusicianSilhouette = memo(function MusicianSilhouette({
   x,
   y,
   kind,
@@ -240,11 +267,11 @@ function MusicianSilhouette({
       ) : null}
     </g>
   );
-}
+});
 
 /**
- * Concert-hall stage: pattern cues sit in the open air above the orchestra;
- * musicians occupy the mid risers; conductor works from the front podium.
+ * Concert-hall stage: cue screen above the orchestra, musicians on mid risers,
+ * conductor on the front podium with a local (non-stretching) arm.
  */
 export function OrchestraStage({
   bass,
@@ -296,25 +323,6 @@ export function OrchestraStage({
     y: grip.y + batonDir.y * BATON_LEN,
   };
 
-  // Mid-stage risers — below the cue airspace, above the podium.
-  // Keep rows inside the widened floor with a little margin for instruments.
-  const winds = playerMarks(49, 11, 160, 4.5, 20).map((p, i) => ({
-    ...p,
-    kind: (i % 3 === 0 ? "flute" : i % 3 === 1 ? "clarinet" : "trumpet") as MusicianKind,
-  }));
-  const stringsBack = playerMarks(57, 14, 162, 5, 19).map((p, i) => ({
-    ...p,
-    kind: (i < 4 || i > 9 ? "viola" : "violin") as MusicianKind,
-  }));
-  const stringsFront = playerMarks(66, 12, 160, 5.5, 20).map((p, i) => ({
-    ...p,
-    kind: (i < 3 || i > 8 ? "cello" : "violin") as MusicianKind,
-  }));
-  const basses = playerMarks(75, 7, 146, 3.5, 27).map((p) => ({
-    ...p,
-    kind: "bass" as MusicianKind,
-  }));
-
   const sectionOpacity = (level: number) =>
     0.42 + level * 0.48 + dyn * 0.08 + (camera ? 0 : 0.02);
   const sectionScale = (level: number) => 0.94 + level * 0.1 + (accent ? 0.03 : 0);
@@ -335,7 +343,7 @@ export function OrchestraStage({
         (accent ? " gestures-orchestra-stage--pulse" : "")
       }
       viewBox="0 0 200 120"
-      preserveAspectRatio="xMidYMid slice"
+      preserveAspectRatio="none"
       aria-hidden
     >
       <defs>
@@ -357,11 +365,6 @@ export function OrchestraStage({
         <radialGradient id="gestures-house-light" cx="50%" cy="18%" r="55%">
           <stop offset="0%" stopColor="rgba(255, 214, 150, 0.22)" />
           <stop offset="45%" stopColor="rgba(251, 191, 36, 0.06)" />
-          <stop offset="100%" stopColor="rgba(0, 0, 0, 0)" />
-        </radialGradient>
-        <radialGradient id="gestures-cue-air" cx="50%" cy="18%" r="38%">
-          <stop offset="0%" stopColor="rgba(15, 23, 42, 0.28)" />
-          <stop offset="70%" stopColor="rgba(15, 23, 42, 0.08)" />
           <stop offset="100%" stopColor="rgba(0, 0, 0, 0)" />
         </radialGradient>
         <linearGradient id="gestures-screen-glass" x1="0" y1="0" x2="0" y2="1">
@@ -469,8 +472,8 @@ export function OrchestraStage({
         opacity={sectionOpacity(t)}
         transform={scaleAround(100, 50, sectionScale(t))}
       >
-        {winds.map((p, i) => (
-          <MusicianSilhouette key={`w-${i}`} x={p.x} y={p.y} kind={p.kind} scale={0.92} />
+        {ORCHESTRA_WINDS.map((p, i) => (
+          <MusicianSilhouette key={`w-${i}`} x={p.x} y={p.y} kind={p.kind} scale={p.scale} />
         ))}
       </g>
 
@@ -479,11 +482,11 @@ export function OrchestraStage({
         opacity={sectionOpacity(m)}
         transform={scaleAround(100, 58, sectionScale(m))}
       >
-        {stringsBack.map((p, i) => (
-          <MusicianSilhouette key={`sb-${i}`} x={p.x} y={p.y} kind={p.kind} scale={0.98} />
+        {ORCHESTRA_STRINGS_BACK.map((p, i) => (
+          <MusicianSilhouette key={`sb-${i}`} x={p.x} y={p.y} kind={p.kind} scale={p.scale} />
         ))}
-        {stringsFront.map((p, i) => (
-          <MusicianSilhouette key={`sf-${i}`} x={p.x} y={p.y} kind={p.kind} scale={1.05} />
+        {ORCHESTRA_STRINGS_FRONT.map((p, i) => (
+          <MusicianSilhouette key={`sf-${i}`} x={p.x} y={p.y} kind={p.kind} scale={p.scale} />
         ))}
       </g>
 
@@ -492,14 +495,14 @@ export function OrchestraStage({
         opacity={sectionOpacity(b)}
         transform={scaleAround(100, 72, sectionScale(b))}
       >
-        {basses.map((p, i) => (
-          <MusicianSilhouette key={`bs-${i}`} x={p.x} y={p.y} kind={p.kind} scale={1.12} />
+        {ORCHESTRA_BASSES.map((p, i) => (
+          <MusicianSilhouette key={`bs-${i}`} x={p.x} y={p.y} kind={p.kind} scale={p.scale} />
         ))}
       </g>
 
       {/* Music stands (subtle) */}
       <g opacity={0.35}>
-        {[48, 72, 100, 128, 152].map((x) => (
+        {MUSIC_STAND_XS.map((x) => (
           <g key={`st-${x}`}>
             <line x1={x} y1={62} x2={x} y2={70} stroke="rgba(180, 160, 130, 0.5)" strokeWidth="0.4" />
             <rect x={x - 2.2} y={60.2} width="4.4" height="2.2" rx="0.3" fill="rgba(30, 24, 18, 0.7)" />

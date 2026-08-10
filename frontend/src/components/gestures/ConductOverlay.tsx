@@ -90,7 +90,7 @@ export function ConductOverlay({
       aria-hidden
     >
       <OrchestraStage
-        variant="panel"
+        variant="camera"
         bass={bass}
         mid={mid}
         treble={treble}

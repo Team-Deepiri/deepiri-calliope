@@ -75,8 +75,8 @@ export type PatternUpdateOpts = {
 
 const INDEX_TIP = 8;
 const WRIST = 0;
-/** Generous disk — webcam jitter + tip smoothing need headroom. */
-const HIT_RADIUS = 0.22;
+/** Scaled with the compressed cue-screen diamond so adjacent beats don't overlap. */
+const HIT_RADIUS = 0.11;
 const HIT_COOLDOWN_MS = 100;
 const TIP_LEAD_SEC = 0.065;
 const TIP_LEAD_MAX = 0.038;

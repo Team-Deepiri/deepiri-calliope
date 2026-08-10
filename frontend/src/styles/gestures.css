@@ -795,16 +795,6 @@
   animation: none;
 }
 
-.gestures-pattern-guide {
-  display: none;
-}
-
-.gestures-pattern-guide--ictus {
-  transform: scale(1.35);
-  background: #fff;
-  box-shadow: 0 0 20px rgba(255, 255, 255, 0.85);
-}
-
 .gestures-pattern-node--done {
   border-color: rgba(52, 211, 153, 0.55);
   color: #6ee7b7;
