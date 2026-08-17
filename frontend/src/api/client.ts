@@ -140,6 +140,62 @@ export async function alignAamati(text: string) {
   }>;
 }
 
+export type AamatiMixSteer = {
+  brightness: number;
+  warmth: number;
+  punch: number;
+  stereo_width: number;
+  target_lufs: number;
+};
+
+export type AamatiSteer = {
+  mood: string;
+  mood_score: number;
+  source: string;
+  bpm: number;
+  key: string;
+  scale_type: string;
+  harmony_mood: string;
+  drum_density: number;
+  swing: number;
+  fill_activity: number;
+  mix: AamatiMixSteer;
+  rationale: string;
+};
+
+export type AamatiComposeResult = {
+  constrain: boolean;
+  steer: AamatiSteer;
+  ranked_moods: {
+    mood: string;
+    score: number;
+    emoji?: string | null;
+    table_summary?: string | null;
+  }[];
+  arrangement: {
+    bpm: number;
+    key: string;
+    scale: string;
+    genre: string;
+    mood: string;
+    total_bars: number;
+    estimated_duration_sec: number;
+    drum_density?: number;
+    sections: Array<{ name: string; bars: number; instruments: string[]; energy: string }>;
+  };
+  llm_block: string;
+};
+
+export async function composeFromAamati(text: string, constrain = true): Promise<AamatiComposeResult> {
+  const r = await fetch(`${base}/v1/aamati/compose`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, constrain }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<AamatiComposeResult>;
+}
+
 export async function createRecordingSession(name: string, sampleRate = 48000, channels = 2): Promise<RecordingSession> {
   const r = await fetch(`${base}/v1/recordings/sessions`, {
     method: "POST",

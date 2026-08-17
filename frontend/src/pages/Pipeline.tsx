@@ -2,7 +2,9 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Cpu, Layers, Play } from "lucide-react";
-import { alignAamati, analyzeBrief, generatePlan, type GenerateDepth } from "../api/client";
+import { alignAamati, analyzeBrief, composeFromAamati, generatePlan, type AamatiComposeResult, type GenerateDepth } from "../api/client";
+import { LlmOutput } from "../components/pipeline/LlmOutput";
+import { AamatiSteerCard } from "../components/studio/AamatiSteerCard";
 
 export function Pipeline() {
   const [text, setText] = useState("Neurofunk 174 BPM, reese bass, tight snare ghost layers");
@@ -13,7 +15,11 @@ export function Pipeline() {
   const [busyA, setBusyA] = useState(false);
   const [busyM, setBusyM] = useState(false);
   const [busyG, setBusyG] = useState(false);
+  const [busyC, setBusyC] = useState(false);
   const [depth, setDepth] = useState<GenerateDepth>("deep");
+  const [locked, setLocked] = useState<AamatiComposeResult | null>(null);
+  const [free, setFree] = useState<AamatiComposeResult | null>(null);
+  const [composeErr, setComposeErr] = useState("");
 
   async function runAnalyze() {
     setBusyA(true);
@@ -41,6 +47,25 @@ export function Pipeline() {
     }
   }
 
+  async function runComposeAb() {
+    setBusyC(true);
+    setComposeErr("");
+    setLocked(null);
+    setFree(null);
+    try {
+      const [a, b] = await Promise.all([
+        composeFromAamati(text, true),
+        composeFromAamati(text, false),
+      ]);
+      setLocked(a);
+      setFree(b);
+    } catch (e) {
+      setComposeErr(String(e));
+    } finally {
+      setBusyC(false);
+    }
+  }
+
   async function runFullGenerate() {
     setBusyG(true);
     setPlan("");
@@ -61,8 +86,10 @@ export function Pipeline() {
       <div className="gradient-strip" style={{ maxWidth: 200, marginBottom: "1rem" }} />
       <h1 className="section-title">Pipeline</h1>
       <p className="lead mt-sm">
-        Step 1: deterministic <strong>music intel</strong> (no LLM). Step 1b: <strong>Aamati</strong> mood ontology
-        alignment (ranked moods + optional ONNX). Step 2: full <strong>architect</strong> pass — prompts include the Aamati prior block automatically.
+        Step 1: deterministic <strong>music intel</strong> (no LLM). Step 1b: <strong>Aamati</strong> mood
+        alignment. Step 1c: Aamati <strong>locks BPM / harmony / drums / mix</strong> into an arrangement
+        (compare to brief-only). Step 2: full <strong>architect</strong> pass — deep prompts include the
+        numeric steer block.
       </p>
 
       <div className="glass-panel stack mt-lg" style={{ padding: "1.35rem" }}>
@@ -85,6 +112,10 @@ export function Pipeline() {
           <button type="button" className="btn-modern btn-ghost" onClick={() => void runAamatiAlign()} disabled={busyM}>
             <Layers size={18} />
             {busyM ? "Aligning…" : "1b · Aamati mood align"}
+          </button>
+          <button type="button" className="btn-modern btn-ghost" onClick={() => void runComposeAb()} disabled={busyC}>
+            <Layers size={18} />
+            {busyC ? "Composing…" : "1c · A/B compose (Aamati vs brief)"}
           </button>
           <button type="button" className="btn-modern btn-primary" onClick={() => void runFullGenerate()} disabled={busyG}>
             <Play size={18} />
@@ -114,13 +145,28 @@ export function Pipeline() {
         </div>
       )}
 
+      {(locked || free || composeErr) && (
+        <div className="glass-panel stack mt-lg" style={{ padding: "1.25rem" }}>
+          <h2 className="section-title" style={{ fontSize: "1.05rem" }}>
+            Production steer A/B
+          </h2>
+          <p className="lead" style={{ fontSize: "0.9rem" }}>
+            Left is locked to the Aamati mood. Right uses only energy / valence / swing from the brief.
+          </p>
+          {composeErr && <p style={{ color: "#f87171" }}>{composeErr}</p>}
+          <div className="aamati-steer-row">
+            {locked && <AamatiSteerCard title="Aamati-locked" result={locked} />}
+            {free && <AamatiSteerCard title="Brief-only" result={free} />}
+          </div>
+        </div>
+      )}
       {plan && (
         <div className="glass-panel stack mt-lg" style={{ padding: "1.25rem" }}>
           <h2 className="section-title" style={{ fontSize: "1.05rem" }}>
             LLM output
           </h2>
           {meta && <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{meta}</p>}
-          <div className="mono-block">{plan}</div>
+          <LlmOutput text={plan} />
         </div>
       )}
     </motion.div>

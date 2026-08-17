@@ -9,6 +9,7 @@ from calliope.music.chord_palette import palette_lines
 from calliope.music.structure_engine import structure_to_prompt_block
 from calliope.schemas import VocalRackIn
 from calliope.services.aamati_prior import AamatiPrior
+from calliope.services.aamati_steer import format_steer_block, steer_from_alignment
 from calliope.services.prompts import (
     MUSIC_ARCHITECT_SYSTEM,
     MUSIC_SYSTEM_PROMPT,
@@ -90,7 +91,10 @@ def build_user_payload(
     )
 
     if depth == "deep":
-        aamati_block = AamatiPrior().build_llm_injection(brief)
+        prior = AamatiPrior()
+        alignment = prior.align(brief.raw_text)
+        aamati_block = prior.build_llm_injection(brief, alignment=alignment)
+        steer_block = format_steer_block(steer_from_alignment(brief, alignment, constrain=True))
         tail += (
             "\nAdditionally output a machine-readable block at the END:\n"
             "```calliope-json\n"
@@ -99,7 +103,7 @@ def build_user_payload(
             "```\n"
         )
         return (
-            f"{analysis_block}\n{aamati_block}\n{palette_block}\n{structure_block}\n\n"
+            f"{analysis_block}\n{aamati_block}\n{steer_block}\n{palette_block}\n{structure_block}\n\n"
             f"{vocal_block}"
             f"[Producer brief]\n{user_prompt.strip()}\n"
             f"{RHYTHM_HARMONY_ADDENDUM}{tail}"
