@@ -16,6 +16,15 @@ from calliope.services.aamati_prior import AamatiAlignmentResult, MoodAlignment
 HarmonyMood = Literal["happy", "sad", "dark", "jazz"]
 ScaleType = Literal["major", "minor", "dorian", "phrygian", "lydian", "mixolydian"]
 
+MIN_RANKED_MOOD_SCORE = 0.05
+ONNX_SCORE_VS_TOP_RATIO = 0.85  # ONNX mood must reach this fraction of the table winner.
+EXPLICIT_BPM_CONFIDENCE = 0.6
+STATED_BPM_BLEND = 0.75  # When constrained, keep this much of an explicit brief BPM.
+MOOD_BPM_BLEND = 0.25
+MIN_BPM = 60
+MAX_BPM = 190
+DEFAULT_MOOD = "focused"
+
 
 @dataclass(frozen=True)
 class MixSteer:
@@ -182,17 +191,17 @@ def heuristic_mood(brief: BriefAnalysis) -> str:
         return "dreamy"
     if brief.energy < 0.4:
         return "chill"
-    return "focused"
+    return DEFAULT_MOOD
 
 
 def pick_mood(alignment: AamatiAlignmentResult | None, brief: BriefAnalysis) -> tuple[str, float, str]:
     """Winner mood, score, and 'aamati' vs 'brief' source."""
     ranked = alignment.ranked_moods if alignment else []
-    if ranked and ranked[0].score > 0.05:
+    if ranked and ranked[0].score > MIN_RANKED_MOOD_SCORE:
         top = ranked[0]
         if alignment and alignment.onnx_mood:
             onnx = next((m for m in ranked if m.mood == alignment.onnx_mood), None)
-            if onnx and onnx.score >= top.score * 0.85:
+            if onnx and onnx.score >= top.score * ONNX_SCORE_VS_TOP_RATIO:
                 return onnx.mood, onnx.score, "aamati"
         return top.mood, top.score, "aamati"
     return heuristic_mood(brief), 0.0, "brief"
@@ -200,12 +209,11 @@ def pick_mood(alignment: AamatiAlignmentResult | None, brief: BriefAnalysis) -> 
 
 def _blend_bpm(brief: BriefAnalysis, recipe_bpm: int, constrain: bool) -> int:
     stated = brief.tempo_bpm
-    if stated and brief.tempo_confidence >= 0.6:
+    if stated and brief.tempo_confidence >= EXPLICIT_BPM_CONFIDENCE:
         if not constrain:
             return int(stated)
-        # Honor explicit BPM but pull ~25% toward the mood target.
-        blended = 0.75 * stated + 0.25 * recipe_bpm
-        return int(_clamp(blended, 60, 190))
+        blended = STATED_BPM_BLEND * stated + MOOD_BPM_BLEND * recipe_bpm
+        return int(_clamp(blended, MIN_BPM, MAX_BPM))
     return recipe_bpm if constrain else int(stated or recipe_bpm)
 
 
@@ -247,7 +255,7 @@ def steer_from_alignment(
         return _brief_only_steer(brief)
 
     mood, score, source = pick_mood(alignment, brief)
-    recipe = _RECIPES.get(mood, _RECIPES["focused"])
+    recipe = _RECIPES.get(mood, _RECIPES[DEFAULT_MOOD])
     return ProductionSteer(
         mood=mood,
         mood_score=round(score, 4),

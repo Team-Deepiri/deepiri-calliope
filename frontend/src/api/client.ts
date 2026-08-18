@@ -163,6 +163,33 @@ export type AamatiSteer = {
   rationale: string;
 };
 
+export type AamatiArrangementSection = {
+  name: string;
+  start_bar: number;
+  bars: number;
+  instruments: string[];
+  dynamics: string;
+  chord_progression: number[][];
+  energy: string;
+  drum_density?: number;
+};
+
+export type AamatiArrangement = {
+  prompt: string;
+  bpm: number;
+  key: string;
+  scale: string;
+  genre: string;
+  mood: string;
+  total_bars: number;
+  estimated_duration_sec: number;
+  drum_density: number;
+  instrument_count: number;
+  sections: AamatiArrangementSection[];
+  chord_progression_summary: string[];
+  melody_motif: Array<{ midi_note: number; start_beat: number; duration_beats: number }>;
+};
+
 export type AamatiComposeResult = {
   constrain: boolean;
   steer: AamatiSteer;
@@ -172,17 +199,7 @@ export type AamatiComposeResult = {
     emoji?: string | null;
     table_summary?: string | null;
   }[];
-  arrangement: {
-    bpm: number;
-    key: string;
-    scale: string;
-    genre: string;
-    mood: string;
-    total_bars: number;
-    estimated_duration_sec: number;
-    drum_density?: number;
-    sections: Array<{ name: string; bars: number; instruments: string[]; energy: string }>;
-  };
+  arrangement: AamatiArrangement;
   llm_block: string;
 };
 

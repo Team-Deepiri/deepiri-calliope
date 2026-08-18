@@ -8,9 +8,21 @@ from typing import Any
 from calliope.audio.harmony_engine import HarmonyEngine
 from calliope.audio.melody_generator import MelodyGenerator
 
-_SECTION_RE = re.compile(
-    r"(intro|verse|pre-chorus|chorus|post-chorus|bridge|breakdown|buildup|drop|solo|outro)"
+# Keep in sync with section_bars() keys — extend both when adding new section labels.
+_SECTION_NAMES = (
+    "intro",
+    "verse",
+    "pre-chorus",
+    "chorus",
+    "post-chorus",
+    "bridge",
+    "breakdown",
+    "buildup",
+    "drop",
+    "solo",
+    "outro",
 )
+_SECTION_RE = re.compile("|".join(re.escape(name) for name in _SECTION_NAMES))
 
 
 def instruments_for_genre(genre: str) -> list[str]:
@@ -75,7 +87,7 @@ def build_arrangement(
     progression = harmony.generate_progression(mood=harmony_mood, length=8)
 
     melody_gen = MelodyGenerator(scale=harmony.scale, root_midi=harmony.root_midi)
-    motif = melody_gen.generate(16, progression, rhythmic_density=float(drum_density))
+    motif = melody_gen.generate(16, progression, rhythmic_density=drum_density)
 
     section_names = _SECTION_RE.findall(prompt.lower())
     if not section_names:
