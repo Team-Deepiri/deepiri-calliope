@@ -239,11 +239,16 @@ class AamatiPrior:
             onnx_probabilities=onnx_probs,
         )
 
-    def build_llm_injection(self, brief: BriefAnalysis, top_k: int = 3) -> str:
+    def build_llm_injection(
+        self,
+        brief: BriefAnalysis,
+        top_k: int = 3,
+        alignment: AamatiAlignmentResult | None = None,
+    ) -> str:
         """Rich text block appended to LLM user payloads."""
         if not self._mod:
             return ""
-        prior = self.align(brief.raw_text)
+        prior = alignment if alignment is not None else self.align(brief.raw_text)
         top = prior.ranked_moods[:top_k]
         lines = [
             "[Aamati groove ontology — prior]\n",
