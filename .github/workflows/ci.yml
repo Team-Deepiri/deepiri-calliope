@@ -100,6 +100,9 @@ jobs:
           machine registry.docker.io
           login registry-token
           password ${REGISTRY_TOKEN}
+          machine github.com
+          login x-access-token
+          password ${REGISTRY_TOKEN}
           EOF
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
@@ -116,10 +119,7 @@ jobs:
         working-directory: .
 
       - name: Install backend dependencies
-        run: |
-          python -m pip install "setuptools<81" wheel
-          python -m pip install --no-build-isolation crepe==0.0.16
-          poetry install --no-interaction --no-ansi
+        run: poetry install --no-interaction --no-ansi
 
       - name: Lint backend
         run: poetry run ruff check src tests
