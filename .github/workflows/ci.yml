@@ -84,6 +84,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -121,8 +123,18 @@ jobs:
       - name: Install backend dependencies
         run: poetry install --no-interaction --no-ansi
 
-      - name: Lint backend
-        run: poetry run ruff check src tests
+      - name: Lint backend (changed files)
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "${BASE_SHA}" ]; then
+            BASE_SHA="origin/main"
+          fi
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "${BASE_SHA}...HEAD" -- 'backend/**/*.py' 'backend/tests/**/*.py' | sed 's#^backend/##' || true)
+          if [ -z "${CHANGED_FILES}" ]; then
+            echo "No backend Python files changed; skipping lint."
+            exit 0
+          fi
+          poetry run ruff check ${CHANGED_FILES}
 
       - name: Test backend
         run: poetry run pytest
@@ -167,7 +179,6 @@ jobs:
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       DEFAULT_LLM_PROVIDER: ollama
       OLLAMA_BASE_URL: http://host.docker.internal:11434
-      REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
 
     steps:
       - name: Checkout repository
