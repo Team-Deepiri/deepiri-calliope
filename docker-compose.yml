@@ -14,6 +14,12 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
       GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-2.0-flash}
+      DATA_PATH: /data
+      AUDIO_STORAGE_PATH: /data/audio
+      RECORDINGS_PATH: /data/audio/recordings
+      PROCESSED_PATH: /data/audio/processed
+      EXPORTS_PATH: /data/audio/exports
+      SAMPLES_PATH: /data/audio/samples
     ports:
       - "8080:8080"
     volumes:

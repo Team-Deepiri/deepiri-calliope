@@ -6,18 +6,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+asyncpg://calliope:calliope@localhost:5432/calliope"
+    database_url: str = "sqlite+aiosqlite:///./calliope.db"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "gemma2:9b"
     aamati_root: str = "/opt/Aamati/aamati_ml"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    audio_storage_path: Path = Path("/data/audio")
-    recordings_path: Path = Path("/data/audio/recordings")
-    processed_path: Path = Path("/data/audio/processed")
-    exports_path: Path = Path("/data/audio/exports")
-    samples_path: Path = Path("/data/audio/samples")
-    data_path: Path = Path("/data")
+    # Local defaults use ./data; Docker Compose overrides these to /data/...
+    audio_storage_path: Path = Path("data/audio")
+    recordings_path: Path = Path("data/audio/recordings")
+    processed_path: Path = Path("data/audio/processed")
+    exports_path: Path = Path("data/audio/exports")
+    samples_path: Path = Path("data/audio/samples")
+    data_path: Path = Path("data")
 
     max_upload_size_mb: int = 100
     supported_audio_formats: list[str] = ["wav", "mp3", "ogg", "flac", "m4a", "aac"]

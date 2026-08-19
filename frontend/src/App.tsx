@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { Home } from "./pages/Home";
 import { Studio } from "./pages/Studio";
+import { Gestures } from "./pages/Gestures";
 import { Pipeline } from "./pages/Pipeline";
 import { Setup } from "./pages/Setup";
 import { isDesktopRuntime, runPreflight } from "./desktop/preflight";
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/" element={<DesktopGate><Home /></DesktopGate>} />
         <Route path="/setup" element={<Setup />} />
         <Route path="/studio" element={<DesktopGate><Studio /></DesktopGate>} />
+        <Route path="/gestures" element={<DesktopGate><Gestures /></DesktopGate>} />
         <Route path="/pipeline" element={<DesktopGate><Pipeline /></DesktopGate>} />
       </Routes>
     </AppShell>

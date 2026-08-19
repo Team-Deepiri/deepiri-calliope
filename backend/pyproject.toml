@@ -11,8 +11,11 @@ packages = [{ include = "calliope", from = "src" }]
 python = "^3.12"
 fastapi = "^0.115.0"
 uvicorn = { extras = ["standard"], version = "^0.32.0" }
-sqlalchemy = { extras = ["asyncpg"], version = "^2.0.36" }
-asyncpg = "^0.30.0"
+sqlalchemy = { extras = ["asyncio", "asyncpg"], version = "^2.0.36" }
+# Required by SQLAlchemy asyncio (SQLite and Postgres)
+greenlet = "^3.0.0"
+# 0.31+ ships cp314 wheels (0.30 fails to build on Python 3.14)
+asyncpg = "^0.31.0"
 aiosqlite = "^0.21.0"
 httpx = "^0.27.0"
 openai = "^1.59.0"
@@ -28,10 +31,14 @@ pandas = "^3.0.3"
 scipy = "^1.15.0"
 soundfile = "^0.12.1"
 pydub = "^0.25.1"
-crepe = "^0.0.16"
+# Optional: CREPE pitch detection (legacy setuptools; broken on Python 3.14)
+crepe = { version = "^0.0.16", optional = true }
 audioread = "^3.0.0"
 pillow = "^11.1.0"
 python-multipart = "^0.0.12"
+
+[tool.poetry.extras]
+crepe = ["crepe"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
