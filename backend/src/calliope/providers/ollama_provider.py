@@ -76,7 +76,7 @@ async def complete_chat(
         "keep_alive": "10m",
         "options": {
             "num_predict": int(settings.ollama_num_predict),
-            "temperature": 0.65,
+            "temperature": float(settings.ollama_temperature),
         },
     }
     url = f"{settings.ollama_base_url.rstrip('/')}/api/generate"

@@ -6,3 +6,5 @@ def test_settings_defaults():
     # Local default is SQLite; Docker/desktop stacks override via env.
     assert "sqlite" in s.database_url or "postgres" in s.database_url
     assert s.data_path.as_posix() == "data"
+    assert s.ollama_temperature == 0.65
+    assert s.ollama_num_predict == 160

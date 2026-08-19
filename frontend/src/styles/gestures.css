@@ -1,6 +1,6 @@
 .gestures-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
+  grid-template-columns: minmax(0, 1.65fr) minmax(240px, 0.7fr);
   gap: 1.25rem;
   align-items: start;
 }
@@ -21,14 +21,15 @@
   aspect-ratio: 16 / 10;
   border-radius: 12px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.45);
+  background: linear-gradient(160deg, #1e293b 0%, #0f172a 45%, #020617 100%);
   border: 1px solid var(--panel-border);
 }
 
 .gestures-stage--live {
-  border-color: rgba(129, 140, 248, 0.45);
+  border-color: rgba(251, 191, 36, 0.4);
 }
 
+/* Capture stays mounted for MediaPipe; feed is never shown. */
 .gestures-stage__video,
 .gestures-stage__canvas {
   position: absolute;
@@ -36,11 +37,34 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1);
+  opacity: 0;
+  pointer-events: none;
 }
 
-.gestures-stage__canvas {
+.gestures-stage__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   pointer-events: none;
+}
+
+.gestures-conduct-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.gestures-conduct-overlay--live .gestures-orchestra-stage {
+  opacity: 1;
+}
+
+.gestures-conduct-overlay--pulse .gestures-orch-section {
+  filter: brightness(1.18);
+}
+
+.gestures-orchestra-stage--camera {
+  opacity: 1;
 }
 
 .gestures-stage__placeholder {
@@ -54,7 +78,7 @@
   color: var(--muted);
   text-align: center;
   padding: 1rem;
-  z-index: 1;
+  z-index: 3;
 }
 
 .gestures-stage__placeholder span {
@@ -598,7 +622,7 @@
 
 .gestures-baton-trail {
   position: relative;
-  height: 96px;
+  height: 180px;
   margin: 0.65rem 0 0.15rem;
   border-radius: 10px;
   border: 1px dashed var(--panel-border);
@@ -606,9 +630,433 @@
   overflow: hidden;
 }
 
+.gestures-baton-trail--pattern {
+  height: 220px;
+}
+
 .gestures-baton-trail--live {
   border-color: rgba(244, 114, 182, 0.45);
   box-shadow: inset 0 0 24px rgba(244, 114, 182, 0.08);
+}
+
+.gestures-baton-trail--pulse {
+  box-shadow: inset 0 0 32px rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+.gestures-orchestra-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.gestures-conductor__lead {
+  filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.25));
+}
+
+.gestures-orchestra-stage--live {
+  opacity: 1;
+}
+
+.gestures-orchestra-stage--pulse .gestures-orch-section {
+  filter: brightness(1.15);
+}
+
+.gestures-orch-section {
+  transition:
+    opacity 0.12s ease,
+    transform 0.14s ease,
+    filter 0.12s ease;
+}
+
+.gestures-conductor__arm,
+.gestures-conductor__baton,
+.gestures-conductor__tip {
+  transition: none;
+}
+
+.gestures-pattern-path {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.gestures-pattern-hud {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Soft vignette so diamond reads as content on the hanging screen */
+.gestures-pattern-hud::before {
+  content: "";
+  position: absolute;
+  left: 23%;
+  top: 5.5%;
+  width: 54%;
+  height: 28%;
+  border-radius: 6px;
+  background: radial-gradient(
+    ellipse at 50% 45%,
+    rgba(15, 23, 42, 0.12) 0%,
+    rgba(8, 12, 24, 0.04) 70%,
+    transparent 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(148, 163, 184, 0.08),
+    0 0 28px rgba(251, 191, 36, 0.06);
+  pointer-events: none;
+}
+
+.gestures-conduct-overlay--live .gestures-pattern-hud::before {
+  box-shadow:
+    inset 0 0 0 1px rgba(251, 191, 36, 0.12),
+    0 0 32px rgba(251, 191, 36, 0.1);
+}
+
+.gestures-pattern-node {
+  position: absolute;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(226, 240, 255, 0.82);
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+  box-shadow:
+    0 0 8px rgba(56, 189, 248, 0.12),
+    inset 0 0 6px rgba(255, 255, 255, 0.04);
+}
+
+.gestures-pattern-node--waypoint {
+  opacity: 0.55;
+  transition:
+    opacity 0.15s ease,
+    transform 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    color 0.12s ease;
+}
+
+.gestures-pattern-node--mid {
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  opacity: 0.45;
+  border-color: rgba(251, 191, 36, 0.35);
+  background: rgba(15, 23, 42, 0.35);
+  font-size: 0;
+}
+
+.gestures-pattern-node--mid-active {
+  opacity: 1;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-color: rgba(251, 191, 36, 0.95);
+  background: rgba(253, 230, 138, 0.9);
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.55);
+}
+
+.gestures-pattern-node--active {
+  opacity: 1;
+  z-index: 2;
+  color: #0f172a;
+  border-color: rgba(251, 191, 36, 0.95);
+  background: rgba(251, 191, 36, 0.9);
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.65);
+  animation: gestures-pattern-pulse 0.9s ease-in-out infinite;
+}
+
+.gestures-pattern-node--ictus {
+  transform: scale(1.35);
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 0 22px rgba(255, 255, 255, 0.85);
+  animation: none;
+}
+
+.gestures-pattern-node--done {
+  border-color: rgba(52, 211, 153, 0.55);
+  color: #6ee7b7;
+}
+
+@keyframes gestures-pattern-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(251, 191, 36, 0.75);
+  }
+}
+
+.gestures-grade-badge {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 3.4rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: rgba(251, 191, 36, 0.1);
+  line-height: 1.1;
+}
+
+.gestures-grade-badge--final {
+  border-color: rgba(52, 211, 153, 0.55);
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.gestures-grade-badge__letter {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #fbbf24;
+}
+
+.gestures-grade-badge--final .gestures-grade-badge__letter {
+  color: #6ee7b7;
+}
+
+.gestures-grade-badge__score {
+  font-size: 0.7rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.gestures-live-hud {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin: 0.65rem 0 0.35rem;
+  padding: 0.75rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: linear-gradient(
+    160deg,
+    rgba(251, 191, 36, 0.12),
+    rgba(15, 23, 42, 0.45) 45%,
+    rgba(15, 23, 42, 0.25)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.gestures-live-hud--free {
+  border-color: rgba(129, 140, 248, 0.3);
+  background: linear-gradient(
+    160deg,
+    rgba(129, 140, 248, 0.1),
+    rgba(15, 23, 42, 0.4) 50%
+  );
+}
+
+.gestures-live-hud__grade {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.gestures-live-hud__letter {
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #0f172a;
+  background: #fbbf24;
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.35);
+}
+
+.gestures-live-hud__grade strong {
+  display: block;
+  font-size: 1.15rem;
+  line-height: 1.1;
+  color: var(--light);
+}
+
+.gestures-live-hud__grade small {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+.gestures-live-hud__meters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem 0.75rem;
+}
+
+.gestures-live-hud__meters .gestures-meter {
+  gap: 0.2rem;
+}
+
+.gestures-live-hud__meters .gestures-meter__label {
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.gestures-live-hud__meters .gestures-meter__value {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--light);
+}
+
+.gestures-live-hud__meters .gestures-meter__track {
+  height: 6px;
+}
+
+.gestures-mix-meters {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+
+@media (max-width: 520px) {
+  .gestures-live-hud__meters,
+  .gestures-mix-meters {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gestures-final-card {
+  margin: 0.5rem 0 0.25rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.gestures-final-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.gestures-final-card__letter {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #fbbf24;
+  line-height: 1;
+}
+
+.gestures-final-card__head p {
+  margin: 0.15rem 0 0;
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.9rem;
+}
+
+.gestures-final-card__coach {
+  margin: 0.65rem 0 0;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.gestures-mode-row {
+  display: flex;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0.15rem;
+}
+
+.gestures-mode-chip {
+  flex: 1 1 auto;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gestures-mode-chip--on {
+  border-color: rgba(251, 191, 36, 0.55);
+  background: rgba(251, 191, 36, 0.12);
+  color: #fde68a;
+}
+
+.gestures-mode-chip--warn {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fca5a5;
+}
+
+.gestures-calib-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.35rem 0 0.15rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(129, 140, 248, 0.4);
+  background: rgba(129, 140, 248, 0.1);
+}
+
+.gestures-calib-banner strong {
+  font-size: 0.9rem;
+  color: var(--light);
+}
+
+.gestures-calib-banner small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.gestures-calib-banner__beats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.gestures-calib-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gestures-calib-pill--done {
+  border-color: rgba(52, 211, 153, 0.55);
+  background: rgba(52, 211, 153, 0.15);
+  color: #6ee7b7;
+}
+
+.gestures-profile-note {
+  margin: 0.25rem 0 0;
+  font-size: 0.72rem;
+  color: #fde68a;
 }
 
 .gestures-transport {
@@ -710,13 +1158,14 @@
 
 .gestures-baton-tip {
   position: absolute;
+  z-index: 3;
   width: 12px;
   height: 12px;
   margin: -6px 0 0 -6px;
   border-radius: 50%;
   background: #f472b6;
   box-shadow: 0 0 10px rgba(244, 114, 182, 0.6);
-  transition: left 0.05s linear, top 0.05s linear;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
 }
 
 .gestures-baton-tip--beat {

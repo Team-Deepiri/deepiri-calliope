@@ -44,6 +44,20 @@
       "bpmHint": 110
     },
     {
+      "id": "the-landing",
+      "label": "The Landing (First Man)",
+      "file": "/gestures/orchestra/The_Landing_from_First_Man.mid",
+      "bpmHint": 120
+    },
+    {
+      "id": "can-you-hear-the-music",
+      "label": "Can You Hear The Music",
+      "file": "/gestures/orchestra/Can_You_Hear_The_Music.mid",
+      "bpmHint": 120,
+      "timeScale": 3,
+      "gainScale": 1.75
+    },
+    {
       "id": "star-wars",
       "label": "Star Wars",
       "file": "/gestures/orchestra/star-wars.mid",

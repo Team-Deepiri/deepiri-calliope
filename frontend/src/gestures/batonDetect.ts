@@ -1,36 +1,53 @@
 import type { Landmark } from "./deriveSignals";
 
+export type ConductMode = "pattern" | "free";
+
 export type BatonState = {
   /** Playback rate vs score base BPM (clamped). */
   tempoRate: number;
-  /** 0–1 dynamics from stroke size / height. */
+  /** 0–1 dynamics from stroke size. */
   dynamics: number;
+  /** Soft sync placeholder for free mode UI. */
+  sync: number;
+  /** Recent gesture size / phrase envelope (0–1). */
+  phrase: number;
   /** True when a beat onset was detected this update. */
   beat: boolean;
-  /** Tip y (0–1), useful for trail UI. */
   tipY: number;
   tipX: number;
+  /** Right wrist (landmark space) for conductor arm IK. */
+  wristX: number;
+  wristY: number;
   active: boolean;
 };
 
+export type BatonUpdateOpts = {
+  baseBpm: number;
+  now?: number;
+};
+
 const INDEX_TIP = 8;
+const WRIST = 0;
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
 /**
- * Detect baton beats from right-hand index tip vertical motion.
- * Pencil tip ≈ index fingertip in the selfie view.
+ * Free-tempo baton detector: stroke rate → tempo, stroke size → dynamics.
  */
 export class BatonDetector {
-  private samples: Array<{ t: number; y: number }> = [];
+  private samples: Array<{ t: number; y: number; x: number }> = [];
   private lastBeatAt = 0;
   private intervals: number[] = [];
   private tempoRate = 1;
   private dynamics = 0.55;
+  private sync = 0.5;
+  private phrase = 0.45;
   private tipX = 0.5;
   private tipY = 0.5;
+  private wristX = 0.5;
+  private wristY = 0.62;
 
   reset(): void {
     this.samples = [];
@@ -38,33 +55,61 @@ export class BatonDetector {
     this.intervals = [];
     this.tempoRate = 1;
     this.dynamics = 0.55;
+    this.sync = 0.5;
+    this.phrase = 0.45;
+    this.tipX = 0.5;
+    this.tipY = 0.5;
+    this.wristX = 0.5;
+    this.wristY = 0.62;
   }
 
   update(
     rightLandmarks: Landmark[] | null | undefined,
-    baseBpm: number,
-    now = performance.now(),
+    opts: BatonUpdateOpts | number,
   ): BatonState {
+    const o: BatonUpdateOpts =
+      typeof opts === "number" ? { baseBpm: opts } : opts;
+    const now = o.now ?? performance.now();
+
     if (!rightLandmarks || rightLandmarks.length < 21) {
-      // Ease tempo toward 1 when baton disappears
       this.tempoRate += (1 - this.tempoRate) * 0.04;
       this.dynamics += (0.35 - this.dynamics) * 0.05;
       this.samples = [];
       return {
         tempoRate: this.tempoRate,
         dynamics: this.dynamics,
+        sync: this.sync,
+        phrase: this.phrase,
         beat: false,
         tipX: this.tipX,
         tipY: this.tipY,
+        wristX: this.wristX,
+        wristY: this.wristY,
         active: false,
       };
     }
 
     const tip = rightLandmarks[INDEX_TIP];
+    const wrist = rightLandmarks[WRIST];
     this.tipX = tip.x;
     this.tipY = tip.y;
-    this.samples.push({ t: now, y: tip.y });
-    this.samples = this.samples.filter((s) => now - s.t <= 280);
+    this.wristX = wrist.x;
+    this.wristY = wrist.y;
+    this.samples.push({ t: now, y: tip.y, x: tip.x });
+    this.samples = this.samples.filter((s) => now - s.t <= 320);
+
+    if (this.samples.length >= 2) {
+      let path = 0;
+      for (let i = 1; i < this.samples.length; i++) {
+        const a = this.samples[i - 1];
+        const b = this.samples[i];
+        path += Math.hypot(b.x - a.x, b.y - a.y);
+      }
+      const ys = this.samples.map((s) => s.y);
+      const span = Math.max(...ys) - Math.min(...ys);
+      const phraseTarget = clamp(path * 2.4 + span * 2.8, 0.12, 1);
+      this.phrase += (phraseTarget - this.phrase) * 0.18;
+    }
 
     let beat = false;
     if (this.samples.length >= 4) {
@@ -73,9 +118,8 @@ export class BatonDetector {
       const c = this.samples[this.samples.length - 1];
       const v1 = (b.y - a.y) / Math.max(1, b.t - a.t);
       const v2 = (c.y - b.y) / Math.max(1, c.t - b.t);
-      // Peak: moving down then up (or up then down) — ictus-ish
       const reversal = v1 * v2 < 0 && Math.abs(v1) > 0.00035 && Math.abs(v2) > 0.00025;
-      const cool = now - this.lastBeatAt > 180;
+      const cool = now - this.lastBeatAt > 160;
       if (reversal && cool) {
         if (this.lastBeatAt > 0) {
           const interval = now - this.lastBeatAt;
@@ -85,7 +129,7 @@ export class BatonDetector {
             const avg =
               this.intervals.reduce((s, x) => s + x, 0) / this.intervals.length;
             const conductedBpm = 60000 / avg;
-            const target = clamp(conductedBpm / Math.max(30, baseBpm), 0.55, 1.45);
+            const target = clamp(conductedBpm / Math.max(30, o.baseBpm), 0.55, 1.45);
             this.tempoRate += (target - this.tempoRate) * 0.35;
           }
         }
@@ -94,12 +138,9 @@ export class BatonDetector {
       }
     }
 
-    // Idle → ease toward nominal tempo
     if (now - this.lastBeatAt > 1200) {
       this.tempoRate += (1 - this.tempoRate) * 0.06;
     }
-
-    // Dynamics from recent vertical travel + height (inverted y)
     if (this.samples.length >= 2) {
       const ys = this.samples.map((s) => s.y);
       const span = Math.max(...ys) - Math.min(...ys);
@@ -111,9 +152,13 @@ export class BatonDetector {
     return {
       tempoRate: this.tempoRate,
       dynamics: this.dynamics,
+      sync: this.sync,
+      phrase: this.phrase,
       beat,
       tipX: this.tipX,
       tipY: this.tipY,
+      wristX: this.wristX,
+      wristY: this.wristY,
       active: true,
     };
   }
