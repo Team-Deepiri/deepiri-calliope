@@ -1030,6 +1030,19 @@
   color: var(--daw-accent);
 }
 
+.aamati-steer-row--daw {
+  margin-top: 0.35rem;
+}
+
+.aamati-steer-row--daw .aamati-steer {
+  font-size: 0.78rem;
+  padding: 0.65rem 0.7rem;
+}
+
+.aamati-steer-row--daw .aamati-steer__mood {
+  font-size: 0.95rem;
+}
+
 .daw-plugins {
   display: flex;
   flex-direction: column;

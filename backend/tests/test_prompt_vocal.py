@@ -31,3 +31,16 @@ def test_build_user_payload_without_vocal_omits_heading():
         vocal_rack=None,
     )
     assert "## Vocals & processing" not in user
+
+
+def test_deep_payload_includes_aamati_numeric_steer():
+    user = build_user_payload(
+        "174 bpm neurofunk reese dark",
+        depth="deep",
+        genre_override=None,
+        bpm_override=174,
+        vocal_rack=None,
+    )
+    assert "[Aamati production steer — hard parameters]" in user
+    assert "Treat these as numeric targets" in user
+    assert "calliope-json" in user

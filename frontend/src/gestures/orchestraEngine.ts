@@ -93,6 +93,7 @@ export class OrchestraEngine {
     mid: 0.75,
     treble: 0.75,
   };
+  private scoreGain = 1;
 
   private captureDest: MediaStreamAudioDestinationNode | null = null;
   private mediaRecorder: MediaRecorder | null = null;
@@ -320,6 +321,10 @@ export class OrchestraEngine {
     await this.ensureVoicesForScore(score);
 
     this.score = score;
+    this.scoreGain = Math.max(0.5, Math.min(3, score.gainScale || 1));
+    if (this.master) {
+      this.master.gain.value = 0.78 * this.scoreGain;
+    }
     this.noteIndex = 0;
     this.scoreTime = 0;
     this.lastPerf = performance.now();
@@ -372,13 +377,14 @@ export class OrchestraEngine {
   }
 
   setTempoRate(rate: number): void {
-    this.tempoRate = Math.min(1.45, Math.max(0.4, rate));
+    // Floor ~crawl pace — low enough to punish misses, high enough to avoid a full stall.
+    this.tempoRate = Math.min(1.45, Math.max(0.15, rate));
   }
 
   setDynamics(level: number): void {
     if (!this.master || !this.ctx) return;
     const t = this.ctx.currentTime;
-    this.master.gain.setTargetAtTime(0.42 + level * 0.48, t, 0.08);
+    this.master.gain.setTargetAtTime((0.42 + level * 0.48) * this.scoreGain, t, 0.08);
   }
 
   setGroupLevels(levels: Record<OrchestraGroupId, number>): void {

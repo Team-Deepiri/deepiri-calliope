@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     default_bit_depth: int = 24
     ollama_timeout_sec: float = 300.0
     ollama_num_predict: int = 160
+    ollama_temperature: float = 0.65
 
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None

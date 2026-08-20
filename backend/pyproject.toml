@@ -31,13 +31,16 @@ pandas = "^3.0.3"
 scipy = "^1.15.0"
 soundfile = "^0.12.1"
 pydub = "^0.25.1"
-# Optional: CREPE pitch detection (legacy setuptools; broken on Python 3.14)
+# Optional: CREPE pitch detection (legacy setuptools; broken on Python 3.14).
+# Transitive CREPE deps (hmmlearn, imageio, matplotlib, h5py, resampy, …) are
+# pulled automatically when installing with `poetry install -E crepe`.
 crepe = { version = "^0.0.16", optional = true }
 audioread = "^3.0.0"
 pillow = "^11.1.0"
 python-multipart = "^0.0.12"
 
 [tool.poetry.extras]
+# Keep the extra name as the install surface; Poetry resolves CREPE's own deps.
 crepe = ["crepe"]
 
 [tool.poetry.group.dev.dependencies]

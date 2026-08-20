@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import Dict, List, Any, Optional
+from typing import Optional
 
-from calliope.audio.routing import AudioGraph, SourceNode, EffectNode
+from calliope.audio.routing import AudioGraph
 from calliope.audio.harmony_engine import HarmonyEngine
 from calliope.audio.melody_generator import MelodyGenerator
 from calliope.audio.drum_machine import DrumMachine, DrumPattern
-from calliope.audio.synthesizer import Synthesizer, generate_sequence
-from calliope.audio.ai_mix import auto_mix
-from calliope.audio.instrument_library import library
+from calliope.audio.synthesizer import generate_sequence
 from calliope.audio.generative_sequencer import Arpeggiator, EuclideanGenerator
 from calliope.audio.spatial import ConvolutionReverb
 from calliope.audio.dynamics_suite import MultibandCompressor
@@ -26,6 +24,22 @@ class Conductor:
     def __init__(self, sr: int = 48000):
         self.sr = sr
         self.graph = AudioGraph(sample_rate=sr)
+        # Heavy vocal engines are created lazily on first lyric/sing request.
+        self._vocal_ai: Optional[AIVocalSynthesizer] = None
+        self._neural_vocal: Optional[NeuralVocalEngine] = None
+
+    @staticmethod
+    def _pad_or_trim(arr: np.ndarray, length: int) -> np.ndarray:
+        if len(arr) < length:
+            return np.pad(arr, (0, length - len(arr)))
+        return arr[:length]
+
+    def _ensure_vocal_engines(self) -> tuple[AIVocalSynthesizer, NeuralVocalEngine]:
+        if self._vocal_ai is None:
+            self._vocal_ai = AIVocalSynthesizer(sr=self.sr)
+        if self._neural_vocal is None:
+            self._neural_vocal = NeuralVocalEngine(sr=self.sr)
+        return self._vocal_ai, self._neural_vocal
 
     def conduct_song(
         self,
@@ -77,16 +91,10 @@ class Conductor:
                 arp_notes.append((n, s + (i * beats_per_chord), d))
         melody_track = generate_sequence("lead_synth", arp_notes, sr=self.sr)
 
-        def pad_or_trim(arr: np.ndarray, length: int) -> np.ndarray:
-            if len(arr) < length:
-                return np.pad(arr, (0, length - len(arr)))
-            return arr[:length]
-
         # --- AI Vocal Layer (skip on lean / gesture clips) ---
         vocal_track = np.zeros(target_len)
         if not lean and ("lyrics" in prompt.lower() or "sing" in prompt.lower()):
-            vocal_ai = AIVocalSynthesizer(sr=self.sr)
-            neural_vocal = NeuralVocalEngine(sr=self.sr)
+            vocal_ai, neural_vocal = self._ensure_vocal_engines()
             lyrics = "Floating through the neon sky, AI singing high"
             vocal_melody = [
                 (melody_gen.generate(16, progression)[0][0] + 12, i * 2.0, 1.0) for i in range(16)
@@ -97,15 +105,15 @@ class Conductor:
                 prompt_context=prompt,
                 config=NeuralVocalConfig(strength=1.0, speed=1.0, doubling_mode="wide"),
             )
-            vocal_track = pad_or_trim(vocal_track, target_len)
+            vocal_track = self._pad_or_trim(vocal_track, target_len)
 
         # 4. Final Mix and Master
         max_len = max(len(drum_track), len(melody_track), len(vocal_track), target_len)
         final_mix = np.zeros(max_len)
 
-        final_mix += pad_or_trim(drum_track, max_len) * 0.7
-        final_mix += pad_or_trim(melody_track, max_len) * 0.5
-        final_mix += pad_or_trim(vocal_track, max_len) * 0.8
+        final_mix += self._pad_or_trim(drum_track, max_len) * 0.7
+        final_mix += self._pad_or_trim(melody_track, max_len) * 0.5
+        final_mix += self._pad_or_trim(vocal_track, max_len) * 0.8
         final_mix = final_mix[:target_len]
 
         if not lean:
