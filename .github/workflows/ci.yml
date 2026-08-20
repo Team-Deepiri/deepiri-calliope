@@ -115,6 +115,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg libsndfile1
         working-directory: .
+        timeout-minutes: 10
+        continue-on-error: true
 
       - name: Install Poetry
         run: python -m pip install "poetry==${POETRY_VERSION}"
@@ -122,6 +124,7 @@ jobs:
 
       - name: Install backend dependencies
         run: poetry install --no-interaction --no-ansi
+        timeout-minutes: 30
 
       - name: Lint backend (changed files)
         run: |
@@ -138,6 +141,7 @@ jobs:
 
       - name: Test backend
         run: poetry run pytest
+        timeout-minutes: 30
 
   docker:
     name: Docker images
