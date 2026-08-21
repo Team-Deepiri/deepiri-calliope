@@ -355,6 +355,12 @@
   flex-direction: column;
 }
 
+.daw-automation {
+  flex-shrink: 0;
+  border-top: 1px solid var(--daw-border-subtle);
+  overflow: hidden;
+}
+
 .daw-vocal-dock {
   flex-shrink: 0;
   border-top: 1px solid var(--daw-border-subtle);

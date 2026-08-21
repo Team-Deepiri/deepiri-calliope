@@ -19,6 +19,90 @@ export type EngineClip = {
   durationSec: number;
 };
 
+export type EngineAutomationPoint = {
+  bar: number; // timeline position in bars
+  value: number; // normalized 0..1 (mapped to track fader range)
+};
+
+export type MasterMeter = { peak: number; rms: number };
+
+export type EngineMasterChannel = {
+  volumeDb: number;
+  muted: boolean;
+  eqLow: { freq: number; gain: number };
+  eqMid: { freq: number; gain: number; q: number };
+  eqHigh: { freq: number; gain: number };
+  compressor: { threshold: number; ratio: number; makeup: number; attack: number; release: number };
+  limiter: { threshold: number; ceiling: number };
+};
+
+export const DEFAULT_MASTER_CHANNEL: EngineMasterChannel = {
+  volumeDb: 0,
+  muted: false,
+  eqLow: { freq: 100, gain: 0 },
+  eqMid: { freq: 1000, gain: 0, q: 1 },
+  eqHigh: { freq: 8000, gain: 0 },
+  compressor: { threshold: -18, ratio: 3, makeup: 0, attack: 0.01, release: 0.15 },
+  limiter: { threshold: -1, ceiling: -0.3 },
+};
+
+/** Master bus signal path: EQ (shelf/peak/shelf) → compressor → limiter → fader. */
+export function buildMasterChain(ctx: BaseAudioContext, s: EngineMasterChannel) {
+  const input = ctx.createGain();
+  const eqLow = ctx.createBiquadFilter();
+  eqLow.type = "lowshelf";
+  const eqMid = ctx.createBiquadFilter();
+  eqMid.type = "peaking";
+  const eqHigh = ctx.createBiquadFilter();
+  eqHigh.type = "highshelf";
+  const comp = ctx.createDynamicsCompressor();
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.ratio.value = 20;
+  limiter.knee.value = 0;
+  limiter.attack.value = 0.002;
+  const fader = ctx.createGain();
+
+  input.connect(eqLow);
+  eqLow.connect(eqMid);
+  eqMid.connect(eqHigh);
+  eqHigh.connect(comp);
+  comp.connect(limiter);
+  limiter.connect(fader);
+
+  const apply = () => {
+    eqLow.frequency.value = Math.max(20, s.eqLow.freq);
+    eqLow.gain.value = s.eqLow.gain;
+    eqMid.frequency.value = Math.max(20, s.eqMid.freq);
+    eqMid.gain.value = s.eqMid.gain;
+    eqMid.Q.value = Math.max(0.1, s.eqMid.q);
+    eqHigh.frequency.value = Math.max(20, s.eqHigh.freq);
+    eqHigh.gain.value = s.eqHigh.gain;
+    comp.threshold.value = s.compressor.threshold;
+    comp.ratio.value = Math.max(1, s.compressor.ratio);
+    comp.attack.value = Math.max(0.001, s.compressor.attack);
+    comp.release.value = Math.max(0.01, s.compressor.release);
+    comp.knee.value = 6;
+    limiter.threshold.value = s.limiter.threshold;
+    fader.gain.value = s.muted ? 0 : dbToGain(s.volumeDb) * dbToGain(s.compressor.makeup);
+  };
+  apply();
+
+  return {
+    input,
+    output: fader,
+    apply,
+    dispose: () => {
+      for (const n of [input, eqLow, eqMid, eqHigh, comp, limiter, fader]) {
+        try {
+          n.disconnect();
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+  };
+}
+
 function dbToGain(db: number): number {
   if (db <= -60) return 0;
   return Math.pow(10, db / 20);
@@ -54,7 +138,7 @@ function pick(params: Record<string, number>, keys: string[], fallback: number):
 
 /** Build a realtime FX insert from the plugin chain (Web Audio approximations). */
 export function buildFxChain(
-  ctx: AudioContext,
+  ctx: BaseAudioContext,
   chain: PluginInstance[],
 ): { input: AudioNode; output: AudioNode; dispose: () => void } {
   const input = ctx.createGain();
@@ -175,7 +259,9 @@ export function buildFxChain(
 
 export class StudioEngine {
   private ctx: AudioContext | null = null;
-  private master: GainNode | null = null;
+  private masterChain: ReturnType<typeof buildMasterChain> | null = null;
+  private analyser: AnalyserNode | null = null;
+  private meterBuf: Float32Array | null = null;
   private fx: ReturnType<typeof buildFxChain> | null = null;
   private buffers = new Map<string, AudioBuffer>();
   private sources: AudioBufferSourceNode[] = [];
@@ -187,29 +273,108 @@ export class StudioEngine {
   private raf: number | null = null;
   private onBar: ((bar: number, beat: number) => void) | null = null;
   private chain: PluginInstance[] = [];
+  private automation = new Map<string, EngineAutomationPoint[]>();
+  private masterCh: EngineMasterChannel = { ...DEFAULT_MASTER_CHANNEL };
+  private lastTracks: EngineTrack[] = [];
 
   async ensure(): Promise<AudioContext> {
     if (!this.ctx) {
       this.ctx = new AudioContext({ sampleRate: 48000 });
-      this.master = this.ctx.createGain();
-      this.master.gain.value = 1;
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 2048;
+      this.meterBuf = new Float32Array(this.analyser.fftSize);
+      this.rebuildMaster();
       this.rebuildFx();
-      this.master.connect(this.ctx.destination);
+      this.masterChain!.output.connect(this.analyser);
+      this.analyser.connect(this.ctx.destination);
     }
     if (this.ctx.state === "suspended") await this.ctx.resume();
     return this.ctx;
   }
 
+  private rebuildMaster() {
+    if (!this.ctx) return;
+    this.masterChain?.dispose();
+    this.masterChain = buildMasterChain(this.ctx, this.masterCh);
+    for (const nodes of this.trackNodes.values()) {
+      try {
+        nodes.pan.disconnect();
+      } catch {
+        /* ignore */
+      }
+      nodes.pan.connect(this.fx ? this.fx.input : this.masterChain.input);
+    }
+    if (this.fx) {
+      try {
+        this.fx.output.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.fx.output.connect(this.masterChain.input);
+    }
+  }
+
+  setMasterChannel(state: EngineMasterChannel) {
+    this.masterCh = state;
+    if (this.ctx) {
+      // Same topology — just refresh parameter values.
+      this.masterChain?.apply();
+      // Fader/mute may have changed topology-independent values only.
+    } else {
+      this.rebuildMaster();
+    }
+  }
+
+  /** Realtime master meter read from the analyser after the master fader. */
+  readMasterMeter(): MasterMeter {
+    if (!this.analyser || !this.meterBuf || !this.playing) return { peak: 0, rms: 0 };
+    this.analyser.getFloatTimeDomainData(this.meterBuf as Float32Array<ArrayBuffer>);
+    let peak = 0;
+    let sumSq = 0;
+    for (let i = 0; i < this.meterBuf.length; i++) {
+      const v = this.meterBuf[i];
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+      sumSq += v * v;
+    }
+    return { peak, rms: Math.sqrt(sumSq / this.meterBuf.length) };
+  }
+
+  setTrackAutomation(automation: Record<string, EngineAutomationPoint[]>) {
+    this.automation = new Map(Object.entries(automation));
+  }
+
+  private scheduleAutomation(barSec: number) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    for (const [trackId, points] of this.automation) {
+      if (!points || points.length === 0) continue;
+      const nodes = this.trackNodes.get(trackId);
+      if (!nodes) continue;
+      const gainParam = nodes.gain.gain;
+      gainParam.cancelScheduledValues(now);
+      const sorted = [...points].sort((a, b) => a.bar - b.bar);
+      // Fader range -60..+6 dB mapped from normalized 0..1
+      const first = sorted[0];
+      const firstWhen = now + Math.max(0, (first.bar - this.startBar) * barSec);
+      gainParam.setValueAtTime(dbToGain(first.value * 66 - 60), Math.max(now, firstWhen));
+      for (let i = 1; i < sorted.length; i++) {
+        const when = now + Math.max(0, (sorted[i].bar - this.startBar) * barSec);
+        gainParam.linearRampToValueAtTime(dbToGain(sorted[i].value * 66 - 60), Math.max(now + 0.001, when));
+      }
+    }
+  }
+
   setPluginChain(chain: PluginInstance[]) {
     this.chain = chain;
-    if (this.ctx && this.master) this.rebuildFx();
+    if (this.ctx && this.masterChain) this.rebuildFx();
   }
 
   private rebuildFx() {
-    if (!this.ctx || !this.master) return;
+    if (!this.ctx || !this.masterChain) return;
     this.fx?.dispose();
     this.fx = buildFxChain(this.ctx, this.chain);
-    this.fx.output.connect(this.master);
+    this.fx.output.connect(this.masterChain.input);
     for (const nodes of this.trackNodes.values()) {
       try {
         nodes.pan.disconnect();
@@ -291,12 +456,14 @@ export class StudioEngine {
     this.bpm = opts.bpm;
     this.startBar = opts.startBar;
     this.onBar = opts.onBar ?? null;
+    this.lastTracks = opts.tracks;
     this.applyTracks(opts.tracks);
     await this.preload(opts.clips);
 
     const barSec = (60 / this.bpm) * 4;
     this.startCtxTime = ctx.currentTime;
     this.playing = true;
+    this.scheduleAutomation(barSec);
 
     for (const clip of opts.clips) {
       const buf = this.buffers.get(`${clip.sessionId}:${clip.recordingId}`);
@@ -328,6 +495,62 @@ export class StudioEngine {
     this.raf = requestAnimationFrame(tick);
   }
 
+  /**
+   * Offline-render the arrangement to an AudioBuffer through the same graph
+   * (track gain/pan → FX chain → master fader). Used by the export dialog.
+   */
+  async renderMix(opts: {
+    bpm: number;
+    clips: EngineClip[];
+    tracks: EngineTrack[];
+    tailSec?: number;
+    onProgress?: (p: number) => void;
+  }): Promise<AudioBuffer> {
+    const refCtx = await this.ensure();
+    await this.preload(opts.clips);
+
+    const barSec = (60 / opts.bpm) * 4;
+    let endBar = 0;
+    for (const c of opts.clips) {
+      endBar = Math.max(endBar, c.startBar + barsFromDuration(c.durationSec, opts.bpm));
+    }
+    if (endBar <= 0) throw new Error("Nothing to render — timeline is empty");
+    const durationSec = endBar * barSec + (opts.tailSec ?? 2);
+    const sampleRate = refCtx.sampleRate;
+
+    const offline = new OfflineAudioContext(2, Math.ceil(durationSec * sampleRate), sampleRate);
+    const master = buildMasterChain(offline, this.masterCh);
+    const fx = buildFxChain(offline, this.chain);
+    fx.output.connect(master.input);
+    master.output.connect(offline.destination);
+
+    const anySolo = opts.tracks.some((t) => t.solo);
+    const gains = new Map<string, GainNode>();
+    for (const t of opts.tracks) {
+      const g = offline.createGain();
+      const p = offline.createStereoPanner();
+      const audible = !t.muted && (!anySolo || t.solo);
+      g.gain.value = audible ? dbToGain(t.volume) : 0;
+      p.pan.value = Math.max(-1, Math.min(1, t.pan));
+      g.connect(p);
+      p.connect(fx.input);
+      gains.set(t.id, g);
+    }
+
+    for (const clip of opts.clips) {
+      const buf = this.buffers.get(`${clip.sessionId}:${clip.recordingId}`);
+      if (!buf) continue;
+      const src = offline.createBufferSource();
+      src.buffer = buf;
+      const g = gains.get(clip.trackId);
+      if (!g) continue;
+      src.connect(g);
+      src.start(Math.max(0, clip.startBar * barSec));
+    }
+
+    return await offline.startRendering();
+  }
+
   pause() {
     if (!this.playing) return;
     this.startBar = this.currentBar();
@@ -339,6 +562,7 @@ export class StudioEngine {
     this.stopSourcesOnly();
     this.playing = false;
     this.startBar = 0;
+    this.applyTracks(this.lastTracks);
     this.onBar?.(1, 0);
   }
 
@@ -361,9 +585,12 @@ export class StudioEngine {
   dispose() {
     this.stop();
     this.fx?.dispose();
+    this.masterChain?.dispose();
     void this.ctx?.close();
     this.ctx = null;
-    this.master = null;
+    this.masterChain = null;
+    this.analyser = null;
+    this.meterBuf = null;
     this.fx = null;
     this.buffers.clear();
     this.trackNodes.clear();

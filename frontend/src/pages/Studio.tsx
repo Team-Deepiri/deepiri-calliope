@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Cpu, GitBranch, Mic, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Cpu, Download, GitBranch, Keyboard, Mic, Plus } from "lucide-react";
 import {
   alignAamati,
   analyzeBrief,
@@ -11,15 +11,28 @@ import {
 } from "../api/client";
 import { AudioRecorder, type AudioRecorderHandle } from "../components/audio/AudioRecorder";
 import { PluginChainEditor } from "../components/audio/PluginChainEditor";
+import { ArrangementEditor, type ArrangementClip } from "../components/studio/ArrangementEditor";
+import { AutomationLane } from "../components/studio/AutomationLane";
+import { ExportDialog } from "../components/studio/ExportDialog";
+import { KeyboardShortcuts } from "../components/studio/KeyboardShortcuts";
+import { MasterBus } from "../components/studio/MasterBus";
 import { MixerConsole, type MixerTrack } from "../components/studio/MixerConsole";
 import { StudioTransport, type TransportState } from "../components/studio/StudioTransport";
 import { TimelineView, type TimelineClip } from "../components/studio/TimelineView";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
-import { barsFromDuration, StudioEngine, type EngineClip } from "../audio/studioEngine";
+import {
+  barsFromDuration,
+  DEFAULT_MASTER_CHANNEL,
+  StudioEngine,
+  type EngineAutomationPoint,
+  type EngineClip,
+  type EngineMasterChannel,
+} from "../audio/studioEngine";
+import { downloadBlob, encodeWav } from "../audio/exportWav";
 import { takeGesturesStudioImport } from "../gestures/studioHandoff";
 import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
-import type { PluginInstance, RecordingFile } from "../types/audio";
+import type { AutomationPoint, PluginInstance, RecordingFile } from "../types/audio";
 
 const PROVIDERS: { value: RouterProvider; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -47,6 +60,8 @@ const SECTIONS = [
   { name: "Drop", startBar: 16, bars: 16, color: "rgba(61, 214, 140, 0.22)" },
 ];
 
+type StudioSection = (typeof SECTIONS)[number];
+
 type StudioClip = EngineClip & {
   name: string;
   color: string;
@@ -66,6 +81,14 @@ export function Studio() {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("vocal");
   const [viewMode, setViewMode] = useState<"arrange" | "edit">("arrange");
   const [pluginChain, setPluginChain] = useState<PluginInstance[]>([]);
+  const [sections, setSections] = useState<StudioSection[]>(SECTIONS);
+  const [zoom, setZoom] = useState(1);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [masterCh, setMasterCh] = useState<EngineMasterChannel>({ ...DEFAULT_MASTER_CHANNEL });
+  const [automation, setAutomation] = useState<Record<string, AutomationPoint[]>>({});
+  const [meter, setMeter] = useState({ peak: 0, rms: 0 });
 
   const [bpm, setBpm] = useState(132);
   const [transport, setTransport] = useState<TransportState>({
@@ -80,7 +103,7 @@ export function Studio() {
     "Dark UK garage, 132 BPM, swung hats, minor 9 chords, dubby chords on the offbeat",
   );
   const [provider, setProvider] = useState<RouterProvider>("ollama");
-  const [depth, setDepth] = useState<GenerateDepth>("standard");
+  const [depth] = useState<GenerateDepth>("standard");
   const [genre, setGenre] = useState("");
   const [vocalRack, setVocalRack] = useState<VocalRackPayload>({ ...DEFAULT_VOCAL_RACK });
   const [vocalInject, setVocalInject] = useState(true);
@@ -100,6 +123,9 @@ export function Studio() {
 
   const [playHint, setPlayHint] = useState("");
 
+  const onPlayRef = useRef<() => void>(() => {});
+  const onRecordRef = useRef<() => void>(() => {});
+
   tracksRef.current = tracks;
   clipsRef.current = clips;
 
@@ -118,6 +144,55 @@ export function Studio() {
   useEffect(() => {
     engineRef.current?.applyTracks(tracks);
   }, [tracks]);
+
+  useEffect(() => {
+    engineRef.current?.setMasterChannel(masterCh);
+  }, [masterCh]);
+
+  useEffect(() => {
+    const barSec = (60 / bpm) * 4;
+    const converted: Record<string, EngineAutomationPoint[]> = {};
+    for (const [trackId, pts] of Object.entries(automation)) {
+      converted[trackId] = pts.map((p) => ({ bar: p.time_ms / 1000 / barSec, value: p.value }));
+    }
+    engineRef.current?.setTrackAutomation(converted);
+  }, [automation, bpm]);
+
+  // Real master metering off the analyser after the fader (10 fps is plenty for UI).
+  useEffect(() => {
+    if (!transport.playing) return;
+    const id = window.setInterval(() => {
+      setMeter(engineRef.current?.readMasterMeter() ?? { peak: 0, rms: 0 });
+    }, 100);
+    return () => {
+      window.clearInterval(id);
+      setMeter({ peak: 0, rms: 0 });
+    };
+  }, [transport.playing]);
+
+  // Global shortcuts: Space play/stop · R record · E export · ? shortcut map
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (target?.isContentEditable) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        void onPlayRef.current();
+      } else if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        onRecordRef.current();
+      } else if (e.key === "e" || e.key === "E") {
+        e.preventDefault();
+        setExportOpen(true);
+      } else if (e.key === "?") {
+        e.preventDefault();
+        setShortcutsOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const vocalTrack = tracks.find((t) => t.type === "vocal");
 
@@ -182,6 +257,81 @@ export function Studio() {
     if (armed) setSelectedTrackId(armed.id);
     setVocalDockOpen(true);
     recorderRef.current?.toggleRecord();
+  };
+  onPlayRef.current = () => void onPlay();
+  onRecordRef.current = onRecord;
+
+  const onClipMove = useCallback((clipId: string, newTrackId: string, newStartBar: number) => {
+    setClips((prev) =>
+      prev.map((c) => (c.id === clipId ? { ...c, trackId: newTrackId, startBar: Math.max(0, newStartBar) } : c)),
+    );
+  }, []);
+
+  const onClipResize = useCallback(
+    (clipId: string, newDurationBars: number) => {
+      const barSec = (60 / bpm) * 4;
+      setClips((prev) =>
+        prev.map((c) => (c.id === clipId ? { ...c, durationSec: Math.max(0.25, newDurationBars) * barSec } : c)),
+      );
+    },
+    [bpm],
+  );
+
+  const selectedAutomation: AutomationPoint[] = automation[selectedTrackId] ?? [];
+  const onUpdateSelectedAutomation = useCallback(
+    (points: AutomationPoint[]) => {
+      setAutomation((prev) => ({ ...prev, [selectedTrackId]: points }));
+    },
+    [selectedTrackId],
+  );
+
+  const handleExport = async (options: {
+    format: string;
+    sampleRate: number;
+    bitDepth: number;
+    stemExport: boolean;
+    normalize: boolean;
+    fileNameTemplate: string;
+  }) => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const engine = ensureEngine();
+      const rendered = await engine.renderMix({
+        bpm,
+        clips: clipsRef.current,
+        tracks: tracksRef.current,
+        tailSec: 2.5,
+      });
+      let buffer = rendered;
+      if (options.normalize && buffer.length > 0) {
+        let peak = 0;
+        for (let c = 0; c < buffer.numberOfChannels; c++) {
+          const data = buffer.getChannelData(c);
+          for (let i = 0; i < data.length; i++) {
+            const a = Math.abs(data[i]);
+            if (a > peak) peak = a;
+          }
+        }
+        if (peak > 0 && Math.abs(peak - 1) > 1e-3) {
+          // Re-render through a normalized master fader.
+          const gainDb = -20 * Math.log10(peak);
+          engine.setMasterChannel({ ...masterCh, volumeDb: masterCh.volumeDb + gainDb });
+          buffer = await engine.renderMix({ bpm, clips: clipsRef.current, tracks: tracksRef.current, tailSec: 2.5 });
+          engine.setMasterChannel(masterCh);
+        }
+      }
+      const depth = options.bitDepth === 16 || options.bitDepth === 24 ? options.bitDepth : 24;
+      const name = (options.fileNameTemplate || "{session}_mixdown").replace("{session}", "calliope-session");
+      downloadBlob(encodeWav(buffer, depth), `${name}.wav`);
+      setPlayHint(`Exported ${name}.wav (${depth}-bit PCM${options.stemExport ? ", stems render as one mix in-browser" : ""})`);
+      setExportOpen(false);
+    } catch (err) {
+      console.error("Export failed", err);
+      setPlayHint(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const onRecordingStateChange = (recording: boolean) => {
@@ -369,6 +519,24 @@ export function Studio() {
         />
         {playHint && <span className="daw-toolbar__hint">{playHint}</span>}
         <span className="daw-toolbar__spacer" />
+        <button
+          type="button"
+          className="daw-toolbar__mode"
+          onClick={() => setExportOpen(true)}
+          disabled={clips.length === 0}
+          title="Export mixdown (E)"
+        >
+          <Download size={14} />
+          Export
+        </button>
+        <button
+          type="button"
+          className="daw-toolbar__mode"
+          onClick={() => setShortcutsOpen(true)}
+          title="Keyboard shortcuts (?)"
+        >
+          <Keyboard size={14} />
+        </button>
         <div className="daw-toolbar__modes">
           <button
             type="button"
@@ -433,17 +601,58 @@ export function Studio() {
 
         <div className="daw-center">
           <div className="daw-arrange">
-            <TimelineView
-              bpm={bpm}
-              durationBars={durationBars}
-              sections={SECTIONS}
-              tracks={tracks}
-              selectedTrackId={selectedTrackId}
-              playheadBar={transport.bar}
-              clips={timelineClips}
-              onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
-            />
+            {viewMode === "edit" ? (
+              <ArrangementEditor
+                tracks={tracks.map((t) => ({ ...t, height: 72 }))}
+                clips={clips.map(
+                  (c): ArrangementClip => ({
+                    id: c.id,
+                    trackId: c.trackId,
+                    name: c.name,
+                    startBar: c.startBar,
+                    duration: barsFromDuration(c.durationSec, bpm),
+                    color: c.color,
+                    type: "audio",
+                  }),
+                )}
+                sections={sections}
+                isPlaying={transport.playing}
+                currentPosition={transport.bar - 1}
+                zoom={zoom}
+                onZoomChange={setZoom}
+                onClipMove={onClipMove}
+                onClipResize={onClipResize}
+                onSectionChange={setSections}
+              />
+            ) : (
+              <TimelineView
+                bpm={bpm}
+                durationBars={durationBars}
+                sections={sections}
+                tracks={tracks}
+                selectedTrackId={selectedTrackId}
+                playheadBar={transport.bar}
+                clips={timelineClips}
+                onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
+              />
+            )}
           </div>
+
+          {viewMode === "edit" && (
+            <div className="daw-automation">
+              <AutomationLane
+                track={{
+                  name: `${tracks.find((t) => t.id === selectedTrackId)?.name ?? "Track"} · volume`,
+                  points: selectedAutomation,
+                  min_value: 0,
+                  max_value: 1,
+                }}
+                onChange={onUpdateSelectedAutomation}
+                durationMs={durationBars * ((60 / bpm) * 4) * 1000}
+                height={150}
+              />
+            </div>
+          )}
 
           <div className={`daw-vocal-dock${vocalDockOpen ? "" : " is-collapsed"}`}>
             <div
@@ -583,7 +792,57 @@ export function Studio() {
 
       <div className="daw__mixer-wrap">
         <MixerConsole tracks={tracks} onUpdateTrack={onUpdateTrack} />
+        <MasterBus
+          masterChannel={{
+            volume: masterCh.volumeDb,
+            pan: 0,
+            muted: masterCh.muted,
+            eqLow: { freq: masterCh.eqLow.freq, gain: masterCh.eqLow.gain },
+            eqMid: { freq: masterCh.eqMid.freq, gain: masterCh.eqMid.gain, q: masterCh.eqMid.q },
+            eqHigh: { freq: masterCh.eqHigh.freq, gain: masterCh.eqHigh.gain },
+            compressor: {
+              threshold: masterCh.compressor.threshold,
+              ratio: masterCh.compressor.ratio,
+              makeup: masterCh.compressor.makeup,
+              attack: masterCh.compressor.attack,
+              release: masterCh.compressor.release,
+            },
+            limiter: { threshold: masterCh.limiter.threshold, ceiling: masterCh.limiter.ceiling },
+            outputMode: "stereo",
+            sampleRate: 48000,
+            dithering: false,
+          }}
+          onUpdate={(updates) =>
+            setMasterCh((m) => ({
+              ...m,
+              volumeDb: updates.volume ?? m.volumeDb,
+              muted: updates.muted ?? m.muted,
+              eqLow: updates.eqLow ? { ...m.eqLow, ...updates.eqLow } : m.eqLow,
+              eqMid: updates.eqMid ? { ...m.eqMid, ...updates.eqMid } : m.eqMid,
+              eqHigh: updates.eqHigh ? { ...m.eqHigh, ...updates.eqHigh } : m.eqHigh,
+              compressor: updates.compressor ? { ...m.compressor, ...updates.compressor } : m.compressor,
+              limiter: updates.limiter ? { ...m.limiter, ...updates.limiter } : m.limiter,
+            }))
+          }
+          metering={{
+            integrated: 20 * Math.log10(Math.max(1e-4, meter.rms)),
+            shortTerm: 20 * Math.log10(Math.max(1e-4, meter.rms)),
+            momentary: 20 * Math.log10(Math.max(1e-4, meter.rms)),
+            correlation: 1,
+            peak: 20 * Math.log10(Math.max(1e-4, meter.peak)),
+          }}
+        />
       </div>
+
+      <ExportDialog
+        open={exportOpen}
+        onClose={() => !exporting && setExportOpen(false)}
+        onExport={(options) => void handleExport(options)}
+        sessionName="Calliope Session"
+        trackCount={tracks.length}
+        duration={durationBars * (60 / bpm) * 4}
+      />
+      <KeyboardShortcuts open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }
