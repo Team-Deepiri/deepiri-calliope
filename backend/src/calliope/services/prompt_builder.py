@@ -11,7 +11,6 @@ from calliope.schemas import VocalRackIn
 from calliope.services.aamati_prior import AamatiPrior
 from calliope.services.prompts import (
     MUSIC_ARCHITECT_SYSTEM,
-    MUSIC_SYSTEM_PROMPT,
     RHYTHM_HARMONY_ADDENDUM,
 )
 
@@ -106,12 +105,16 @@ def build_user_payload(
         )
 
     # Standard depth: lean prompt so local Ollama finishes in a reasonable time.
+    sections = ["## Tempo", "## Harmony", "## Groove"]
+    if vocal_rack is not None:
+        sections.append("## Vocals & processing")
+    sections.extend(["## Arrangement", "## Mix"])
     return (
         f"{analysis_block}"
         f"- Scaffold bars: {struct.total_bars}\n\n"
         f"{vocal_block}"
         f"[Producer brief]\n{user_prompt.strip()}\n\n"
         "Reply with short markdown sections only:\n"
-        "## Tempo\n## Harmony\n## Groove\n## Arrangement\n## Mix\n"
-        "Max 2 bullets per section.\n"
+        + "\n".join(sections)
+        + "\nMax 2 bullets per section.\n"
     )

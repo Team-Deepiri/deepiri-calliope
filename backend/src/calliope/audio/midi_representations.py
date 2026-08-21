@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 PAD_TOKEN = 0
@@ -73,7 +73,7 @@ def _remi_encode(note: NoteToken) -> list[int]:
 
 def _remi_decode(tokens: list[int], idx: int) -> tuple[NoteToken | None, int]:
     if idx >= len(tokens) - 4:
-        return None, idx
+        return None, idx + 1
     if not (BAR_OFFSET <= tokens[idx] < BAR_OFFSET + MAX_BARS):
         return None, idx + 1
     bar = tokens[idx] - BAR_OFFSET
@@ -109,7 +109,7 @@ def _mumidi_encode(note: NoteToken) -> list[int]:
 
 def _mumidi_decode(tokens: list[int], idx: int) -> tuple[NoteToken | None, int]:
     if idx >= len(tokens) - 6:
-        return None, idx
+        return None, idx + 1
     if not (BAR_OFFSET <= tokens[idx] < BAR_OFFSET + MAX_BARS):
         return None, idx + 1
     bar = tokens[idx] - BAR_OFFSET
@@ -148,7 +148,7 @@ def _octuple_encode(note: NoteToken) -> list[int]:
 
 def _octuple_decode(tokens: list[int], idx: int) -> tuple[NoteToken | None, int]:
     if idx >= len(tokens) - 7:
-        return None, idx
+        return None, idx + 1
     if not (BAR_OFFSET <= tokens[idx] < BAR_OFFSET + MAX_BARS):
         return None, idx + 1
     bar = tokens[idx] - BAR_OFFSET
@@ -223,7 +223,7 @@ def _cp_encode(note: NoteToken) -> list[int]:
 
 def _cp_decode(tokens: list[int], idx: int) -> tuple[NoteToken | None, int]:
     if idx >= len(tokens) - 4:
-        return None, idx
+        return None, idx + 1
     if not (BAR_OFFSET <= tokens[idx] < BAR_OFFSET + MAX_BARS):
         return None, idx + 1
     bar = tokens[idx] - BAR_OFFSET

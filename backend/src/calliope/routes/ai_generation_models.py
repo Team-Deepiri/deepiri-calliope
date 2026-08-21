@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from calliope.audio.music_vae import MusicVAE, VAEConfig
 from calliope.audio.musegan import MuseGAN, MuseGANConfig
 from calliope.audio.music_transformer import MusicTransformerModel, TransformerConfig
+from calliope.audio.midi_representations import NoteToken, decode_token_sequence
 from calliope.audio.melody_generator import MelodyGenerator
 from calliope.audio.harmony_engine import HarmonyEngine
 from calliope.audio.io import write_audio_file
@@ -13,6 +15,8 @@ from calliope.audio.synthesizer import generate_sequence
 from calliope.config import get_settings
 
 router = APIRouter(tags=["ai-generation-models"])
+
+_NOTE_FIELDS = {f for f in NoteToken.__dataclass_fields__}
 
 
 class ModelGenerateRequest(BaseModel):
@@ -35,63 +39,134 @@ class ModelGenerateResponse(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+def _notes_to_tuples(notes: list[NoteToken], bpm: int) -> list[tuple[int, float, float]]:
+    """NoteToken (bar/position/duration in beats) -> (midi, start_sec, duration_sec)."""
+    sec_per_beat = 60.0 / max(bpm, 1)
+    return [
+        (
+            int(note.pitch),
+            note.bar * 4 * sec_per_beat + note.position * sec_per_beat,
+            max(note.duration * sec_per_beat, 0.05),
+        )
+        for note in notes
+    ]
+
+
+def _pad_tokens(tokens: list[int], max_seq_len: int) -> np.ndarray:
+    arr = np.full((1, max_seq_len), 0, dtype=np.int32)
+    arr[0, : min(len(tokens), max_seq_len)] = tokens[:max_seq_len]
+    return arr
+
+
+def _coerce_note_tokens(raw: list[dict]) -> list[NoteToken]:
+    notes: list[NoteToken] = []
+    for item in raw:
+        try:
+            notes.append(NoteToken(**{k: v for k, v in item.items() if k in _NOTE_FIELDS}))
+        except TypeError:
+            continue
+    return notes
+
+
+def _fallback_tuples(prompt: str, bpm: int, duration: int) -> list[tuple[int, float, float]]:
+    """Audible deterministic fallback when model tokens decode to nothing."""
+    harmony = HarmonyEngine(root="C", scale_type="major")
+    progression = harmony.generate_progression(mood="happy", length=4)
+    melody_gen = MelodyGenerator(scale=harmony.scale, root_midi=harmony.root_midi)
+    return melody_gen.generate(max(duration * 4, 8), progression)
+
+
 @router.post("/v1/ai-generate/music-vae", response_model=ModelGenerateResponse)
 async def generate_music_vae(body: ModelGenerateRequest) -> ModelGenerateResponse:
-    config = VAEConfig()
+    # Cap the decode horizon: the sampler stops at EOS or max_seq_len, and the
+    # untrained prior rarely emits EOS — a full 2048-step decode is minutes slow.
+    config = VAEConfig(max_seq_len=min(VAEConfig.max_seq_len, 64))
     vae = MusicVAE(config)
-    z_a = vae.encode_style(body.style_a or "default")
-    z_b = vae.encode_style(body.style_b or "default")
-    interp = vae.interpolate(z_a, z_b, steps=body.duration)
-    notes = vae.decode(interp, temperature=body.temperature)
-    audio = generate_sequence("lead_synth", notes, sr=48000)
+
+    # Sample two sequences from the latent prior as stand-ins for style A/B,
+    # then interpolate between their latent encodings.
+    tokens_a = vae.sample(num_samples=1, temperature=body.temperature)[0]
+    tokens_b = vae.sample(num_samples=1, temperature=body.temperature)[0]
+    steps = max(2, min(body.duration, 4))
+    interp = vae.interpolate(
+        _pad_tokens(tokens_a, config.max_seq_len),
+        _pad_tokens(tokens_b, config.max_seq_len),
+        steps=steps,
+    )
+    notes = decode_token_sequence(interp[-1], "remi")
+    note_tuples = _notes_to_tuples(notes, body.bpm)
+    fell_back = False
+    if not note_tuples:
+        note_tuples = _fallback_tuples(body.prompt, body.bpm, body.duration)
+        fell_back = True
+    audio = generate_sequence("lead_synth", note_tuples, sr=48000)
     settings = get_settings()
     output_dir = settings.processed_path / "ai_generation" / "music_vae"
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "vae_interp.wav"
     write_audio_file(path, audio, 48000, format="wav")
-    return ModelGenerateResponse(audio_path=str(path), metadata={"note_count": len(notes), "bpm": body.bpm, "key": body.key})
+    return ModelGenerateResponse(
+        audio_path=str(path),
+        metadata={
+            "note_count": len(note_tuples),
+            "bpm": body.bpm,
+            "key": body.key,
+            "fallback": fell_back,
+        },
+    )
 
 
 @router.post("/v1/ai-generate/musegan", response_model=ModelGenerateResponse)
 async def generate_musegan(body: ModelGenerateRequest) -> ModelGenerateResponse:
-    config = MuseGANConfig()
+    config = MuseGANConfig(num_tracks=body.num_tracks)
     musegan = MuseGAN(config)
-    tracks = musegan.generate(
-        bpm=body.bpm,
-        key=body.key,
-        bars=body.duration,
-        num_tracks=body.num_tracks,
-        temperature=body.temperature,
-    )
-    mix = sum(tracks.values()) / max(len(tracks), 1)
-    mix = (mix / (mix.max() + 1e-8) * 0.95).astype(mix.dtype)
-    import numpy as np
-    audio = np.asarray(mix)
+    pianoroll = musegan.generate_tracks(batch=1)
+    # (pitch, track_index, start_time, duration) per batch element.
+    batch_notes = musegan.to_midi_notes(pianoroll)[0]
+    note_tuples = [(int(pitch), float(start), float(dur)) for pitch, _track, start, dur in batch_notes]
+    audio = generate_sequence("lead_synth", note_tuples, sr=48000)
     settings = get_settings()
     output_dir = settings.processed_path / "ai_generation" / "musegan"
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "multitrack.wav"
     write_audio_file(path, audio, 48000, format="wav")
-    return ModelGenerateResponse(audio_path=str(path), metadata={"track_count": len(tracks), "bpm": body.bpm, "key": body.key})
+    return ModelGenerateResponse(
+        audio_path=str(path),
+        metadata={
+            "track_count": body.num_tracks,
+            "note_count": len(note_tuples),
+            "bpm": body.bpm,
+            "key": body.key,
+        },
+    )
 
 
 @router.post("/v1/ai-generate/transformer", response_model=ModelGenerateResponse)
 async def generate_transformer(body: ModelGenerateRequest) -> ModelGenerateResponse:
     config = TransformerConfig()
     model = MusicTransformerModel(config)
-    notes = model.generate(
-        prompt=body.prompt,
-        bpm=body.bpm,
-        max_length=body.duration * 4,
-        temperature=body.temperature,
-    )
-    audio = generate_sequence("lead_synth", notes, sr=48000)
+    tokens = model.generate(max_length=body.duration * 4, temperature=body.temperature)
+    notes = decode_token_sequence(tokens, "remi")
+    note_tuples = _notes_to_tuples(notes, body.bpm)
+    fell_back = False
+    if not note_tuples:
+        note_tuples = _fallback_tuples(body.prompt, body.bpm, body.duration)
+        fell_back = True
+    audio = generate_sequence("lead_synth", note_tuples, sr=48000)
     settings = get_settings()
     output_dir = settings.processed_path / "ai_generation" / "transformer"
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "transformer.wav"
     write_audio_file(path, audio, 48000, format="wav")
-    return ModelGenerateResponse(audio_path=str(path), metadata={"note_count": len(notes), "bpm": body.bpm, "key": body.key})
+    return ModelGenerateResponse(
+        audio_path=str(path),
+        metadata={
+            "note_count": len(note_tuples),
+            "bpm": body.bpm,
+            "key": body.key,
+            "fallback": fell_back,
+        },
+    )
 
 
 @router.post("/v1/ai-generate/melody-template", response_model=ModelGenerateResponse)
@@ -112,25 +187,30 @@ async def generate_melody_template(body: ModelGenerateRequest) -> ModelGenerateR
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "template.wav"
     write_audio_file(path, audio, 48000, format="wav")
-    return ModelGenerateResponse(audio_path=str(path), metadata={"note_count": len(melody_notes), "bpm": body.bpm, "key": body.key, "pattern": pattern})
+    return ModelGenerateResponse(
+        audio_path=str(path),
+        metadata={"note_count": len(melody_notes), "bpm": body.bpm, "key": body.key, "pattern": pattern},
+    )
 
 
 @router.post("/v1/ai-generate/variation", response_model=ModelGenerateResponse)
 async def generate_variation(body: ModelGenerateRequest) -> ModelGenerateResponse:
     if not body.input_notes:
         raise HTTPException(status_code=400, detail="input_notes required for variation")
+    seed_notes = _coerce_note_tokens(body.input_notes)
+    if not seed_notes:
+        raise HTTPException(status_code=400, detail="input_notes did not contain any valid note fields")
     config = TransformerConfig()
     model = MusicTransformerModel(config)
-    variations = model.generate_variations(
-        seed_notes=body.input_notes,
-        num_variations=1,
-        temperature=body.temperature,
-    )
-    notes = variations[0] if variations else body.input_notes
-    audio = generate_sequence("lead_synth", notes, sr=48000)
+    notes = model.generate_from_notes(seed_notes, max_new_tokens=body.duration * 4)
+    note_tuples = _notes_to_tuples(notes, body.bpm)
+    audio = generate_sequence("lead_synth", note_tuples, sr=48000)
     settings = get_settings()
     output_dir = settings.processed_path / "ai_generation" / "variation"
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "variation.wav"
     write_audio_file(path, audio, 48000, format="wav")
-    return ModelGenerateResponse(audio_path=str(path), metadata={"note_count": len(notes), "bpm": body.bpm, "key": body.key})
+    return ModelGenerateResponse(
+        audio_path=str(path),
+        metadata={"note_count": len(note_tuples), "bpm": body.bpm, "key": body.key},
+    )
