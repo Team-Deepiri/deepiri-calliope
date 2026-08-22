@@ -497,14 +497,16 @@ export class StudioEngine {
 
   /**
    * Offline-render the arrangement to an AudioBuffer through the same graph
-   * (track gain/pan → FX chain → master fader). Used by the export dialog.
+   * (track gain/pan → FX chain → master bus). Used by the export dialog.
+   * `onlyTrackId` renders a single stem (all other tracks muted).
    */
   async renderMix(opts: {
     bpm: number;
     clips: EngineClip[];
     tracks: EngineTrack[];
     tailSec?: number;
-    onProgress?: (p: number) => void;
+    targetSampleRate?: number;
+    onlyTrackId?: string;
   }): Promise<AudioBuffer> {
     const refCtx = await this.ensure();
     await this.preload(opts.clips);
@@ -516,9 +518,13 @@ export class StudioEngine {
     }
     if (endBar <= 0) throw new Error("Nothing to render — timeline is empty");
     const durationSec = endBar * barSec + (opts.tailSec ?? 2);
-    const sampleRate = refCtx.sampleRate;
+    const sampleRate = Math.max(8000, Math.min(192000, opts.targetSampleRate ?? refCtx.sampleRate));
 
-    const offline = new OfflineAudioContext(2, Math.ceil(durationSec * sampleRate), sampleRate);
+    const offline = new OfflineAudioContext(
+      2,
+      Math.ceil(durationSec * sampleRate),
+      sampleRate,
+    );
     const master = buildMasterChain(offline, this.masterCh);
     const fx = buildFxChain(offline, this.chain);
     fx.output.connect(master.input);
@@ -529,7 +535,8 @@ export class StudioEngine {
     for (const t of opts.tracks) {
       const g = offline.createGain();
       const p = offline.createStereoPanner();
-      const audible = !t.muted && (!anySolo || t.solo);
+      const stemMuted = opts.onlyTrackId != null && t.id !== opts.onlyTrackId;
+      const audible = !t.muted && !stemMuted && (!anySolo || t.solo);
       g.gain.value = audible ? dbToGain(t.volume) : 0;
       p.pan.value = Math.max(-1, Math.min(1, t.pan));
       g.connect(p);

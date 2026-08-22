@@ -295,19 +295,23 @@ export function Studio() {
   }) => {
     if (exporting) return;
     setExporting(true);
+    const sessionName = sessionIdRef.current
+      ? `session-${sessionIdRef.current.slice(0, 8)}`
+      : "calliope-session";
     try {
       const engine = ensureEngine();
-      const rendered = await engine.renderMix({
+      const renderOpts = {
         bpm,
         clips: clipsRef.current,
         tracks: tracksRef.current,
         tailSec: 2.5,
-      });
-      let buffer = rendered;
-      if (options.normalize && buffer.length > 0) {
+        targetSampleRate: options.sampleRate,
+      };
+      let rendered = await engine.renderMix(renderOpts);
+      if (options.normalize && rendered.length > 0) {
         let peak = 0;
-        for (let c = 0; c < buffer.numberOfChannels; c++) {
-          const data = buffer.getChannelData(c);
+        for (let c = 0; c < rendered.numberOfChannels; c++) {
+          const data = rendered.getChannelData(c);
           for (let i = 0; i < data.length; i++) {
             const a = Math.abs(data[i]);
             if (a > peak) peak = a;
@@ -317,14 +321,29 @@ export function Studio() {
           // Re-render through a normalized master fader.
           const gainDb = -20 * Math.log10(peak);
           engine.setMasterChannel({ ...masterCh, volumeDb: masterCh.volumeDb + gainDb });
-          buffer = await engine.renderMix({ bpm, clips: clipsRef.current, tracks: tracksRef.current, tailSec: 2.5 });
+          rendered = await engine.renderMix(renderOpts);
           engine.setMasterChannel(masterCh);
         }
       }
       const depth = options.bitDepth === 16 || options.bitDepth === 24 ? options.bitDepth : 24;
-      const name = (options.fileNameTemplate || "{session}_mixdown").replace("{session}", "calliope-session");
-      downloadBlob(encodeWav(buffer, depth), `${name}.wav`);
-      setPlayHint(`Exported ${name}.wav (${depth}-bit PCM${options.stemExport ? ", stems render as one mix in-browser" : ""})`);
+      const baseName = (options.fileNameTemplate || "{session}_mixdown").replace("{session}", sessionName);
+
+      if (options.stemExport) {
+        // One WAV per track that actually has clips, plus the mixdown.
+        const stemTracks = tracksRef.current.filter((t) =>
+          clipsRef.current.some((c) => c.trackId === t.id),
+        );
+        downloadBlob(encodeWav(rendered, depth), `${baseName}.wav`);
+        for (const t of stemTracks) {
+          const stem = await engine.renderMix({ ...renderOpts, onlyTrackId: t.id });
+          const safeName = t.name.replace(/[^a-z0-9_-]+/gi, "_").toLowerCase();
+          downloadBlob(encodeWav(stem, depth), `${baseName}_${safeName}.wav`);
+        }
+        setPlayHint(`Exported ${baseName}.wav + ${stemTracks.length} stem(s) (${depth}-bit PCM @ ${options.sampleRate} Hz)`);
+      } else {
+        downloadBlob(encodeWav(rendered, depth), `${baseName}.wav`);
+        setPlayHint(`Exported ${baseName}.wav (${depth}-bit PCM @ ${options.sampleRate} Hz)`);
+      }
       setExportOpen(false);
     } catch (err) {
       console.error("Export failed", err);
@@ -838,7 +857,7 @@ export function Studio() {
         open={exportOpen}
         onClose={() => !exporting && setExportOpen(false)}
         onExport={(options) => void handleExport(options)}
-        sessionName="Calliope Session"
+        sessionName={sessionIdRef.current ? `session-${sessionIdRef.current.slice(0, 8)}` : "calliope-session"}
         trackCount={tracks.length}
         duration={durationBars * (60 / bpm) * 4}
       />
