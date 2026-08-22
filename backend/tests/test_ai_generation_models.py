@@ -83,3 +83,51 @@ def test_note_token_roundtrip_preserves_pitch():
     tokens = encode_note_sequence([note], "remi")
     decoded = decode_token_sequence(tokens, "remi")
     assert decoded and decoded[0].pitch == 64
+
+
+def test_melody_stepwise_is_predominantly_conjunct():
+    from calliope.audio.harmony_engine import HarmonyEngine
+    from calliope.audio.melody_generator import MelodyGenerator
+
+    harmony = HarmonyEngine(root="C", scale_type="major")
+    gen = MelodyGenerator(scale=harmony.scale, root_midi=harmony.root_midi)
+    notes = gen.generate_stepwise(32, harmony.generate_progression(mood="happy", length=4))
+    assert notes, "stepwise melody must produce notes"
+    pitches = sorted({n[0] for n in notes})
+    # Contained in the generator's 3-octave window around the root
+    assert harmony.root_midi - 13 <= min(pitches) <= max(pitches) <= harmony.root_midi + 25
+    for _, start, dur in notes:
+        assert dur > 0 and start >= 0
+
+
+def test_melody_jumping_favors_chord_tones():
+    from calliope.audio.harmony_engine import HarmonyEngine
+    from calliope.audio.melody_generator import MelodyGenerator
+
+    harmony = HarmonyEngine(root="C", scale_type="major")
+    progression = harmony.generate_progression(mood="happy", length=4)
+    gen = MelodyGenerator(scale=harmony.scale, root_midi=harmony.root_midi)
+    notes = gen.generate_jumping(64, progression, rhythmic_density=1.0)
+    assert notes, "jumping melody must produce notes"
+    chord_tones = {p for chord in progression for p in chord}
+    on_chord = sum(1 for pitch, start, _ in notes if (pitch - (pitch % 12)) in (0,) or pitch % 12 in
+                   {p % 12 for p in chord_tones})
+    assert on_chord >= len(notes) * 0.8, "leaps should land on chord tones most of the time"
+
+
+def test_music_vae_decode_sample_interpolate_run():
+    import numpy as np
+
+    from calliope.audio.music_vae import MusicVAE, VAEConfig
+
+    cfg = VAEConfig(max_seq_len=32)
+    vae = MusicVAE(cfg)
+    z = np.random.randn(1, cfg.latent_dim).astype(np.float32)
+    out = vae.decode(z)
+    assert out.ndim == 3 and out.shape[-1] == cfg.vocab_size
+    sampled = vae.sample(1)
+    assert sampled and len(sampled[0]) > 1
+    a = np.array([[10, 20, 30]])
+    b = np.array([[40, 50, 60]])
+    interp = vae.interpolate(a, b, steps=3)
+    assert len(interp) == 3

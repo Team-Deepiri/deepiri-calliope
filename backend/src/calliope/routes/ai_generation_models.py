@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -14,9 +16,11 @@ from calliope.audio.io import write_audio_file
 from calliope.audio.synthesizer import generate_sequence
 from calliope.config import get_settings
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["ai-generation-models"])
 
-_NOTE_FIELDS = {f for f in NoteToken.__dataclass_fields__}
+_NOTE_FIELDS = {f.name for f in NoteToken.__dataclass_fields__.values()}
 
 
 class ModelGenerateRequest(BaseModel):
@@ -70,10 +74,11 @@ def _coerce_note_tokens(raw: list[dict]) -> list[NoteToken]:
 
 def _fallback_tuples(prompt: str, bpm: int, duration: int) -> list[tuple[int, float, float]]:
     """Audible deterministic fallback when model tokens decode to nothing."""
+    logger.warning("model output decoded to no notes — using stepwise melody fallback (prompt=%r bpm=%s)", prompt[:80], bpm)
     harmony = HarmonyEngine(root="C", scale_type="major")
     progression = harmony.generate_progression(mood="happy", length=4)
     melody_gen = MelodyGenerator(scale=harmony.scale, root_midi=harmony.root_midi)
-    return melody_gen.generate(max(duration * 4, 8), progression)
+    return melody_gen.generate_stepwise(max(duration * 4, 8), progression)
 
 
 @router.post("/v1/ai-generate/music-vae", response_model=ModelGenerateResponse)
