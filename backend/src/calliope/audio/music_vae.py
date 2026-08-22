@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from calliope.audio.midi_representations import NoteToken, encode_note_sequence, decode_token_sequence, VOCAB_SIZE
 
@@ -35,18 +34,18 @@ class EncoderRNN:
 
         rng = np.random.default_rng(42)
         s = 0.02
-        self.w_ih_f = [rng.normal(0, s, (hidden_dim, input_dim if l == 0 else hidden_dim)).astype(np.float32) for l in range(num_layers)]
-        self.w_hh_f = [rng.normal(0, s, (hidden_dim, hidden_dim)).astype(np.float32) for l in range(num_layers)]
+        self.w_ih_f = [rng.normal(0, s, (hidden_dim, input_dim if layer == 0 else hidden_dim)).astype(np.float32) for layer in range(num_layers)]
+        self.w_hh_f = [rng.normal(0, s, (hidden_dim, hidden_dim)).astype(np.float32) for layer in range(num_layers)]
         self.b_h_f = [np.zeros(hidden_dim, dtype=np.float32) for _ in range(num_layers)]
 
-        self.w_ih_b = [rng.normal(0, s, (hidden_dim, input_dim if l == 0 else hidden_dim)).astype(np.float32) for l in range(num_layers)]
-        self.w_hh_b = [rng.normal(0, s, (hidden_dim, hidden_dim)).astype(np.float32) for l in range(num_layers)]
+        self.w_ih_b = [rng.normal(0, s, (hidden_dim, input_dim if layer == 0 else hidden_dim)).astype(np.float32) for layer in range(num_layers)]
+        self.w_hh_b = [rng.normal(0, s, (hidden_dim, hidden_dim)).astype(np.float32) for layer in range(num_layers)]
         self.b_h_b = [np.zeros(hidden_dim, dtype=np.float32) for _ in range(num_layers)]
 
     def _rnn_step(self, x: np.ndarray, h: np.ndarray, w_ih: list, w_hh: list, b_h: list) -> np.ndarray:
-        for l in range(self.num_layers):
-            h[l] = np.tanh(x @ w_ih[l].T + h[l] @ w_hh[l].T + b_h[l])
-            x = h[l]
+        for layer in range(self.num_layers):
+            h[layer] = np.tanh(x @ w_ih[layer].T + h[layer] @ w_hh[layer].T + b_h[layer])
+            x = h[layer]
         return h
 
     def forward(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -82,7 +81,6 @@ class ConductorRNN:
         self.b_out = np.zeros(latent_dim * 2, dtype=np.float32)
 
     def forward(self, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        batch = z.shape[0]
         h = np.tanh(z @ self.w_in.T + self.b_in)
         means = []
         stds = []
@@ -109,8 +107,8 @@ class DecoderRNN:
 
         rng = np.random.default_rng(42)
         s = 0.02
-        self.w_ih = [rng.normal(0, s, (hidden_dim, input_dim if l == 0 else hidden_dim)).astype(np.float32) for l in range(num_layers)]
-        self.w_hh = [rng.normal(0, s, (hidden_dim, hidden_dim)).astype(np.float32) for l in range(num_layers)]
+        self.w_ih = [rng.normal(0, s, (hidden_dim, input_dim if layer == 0 else hidden_dim)).astype(np.float32) for layer in range(num_layers)]
+        self.w_hh = [rng.normal(0, s, (hidden_dim, hidden_dim)).astype(np.float32) for layer in range(num_layers)]
         self.b_h = [np.zeros(hidden_dim, dtype=np.float32) for _ in range(num_layers)]
 
         self.w_out = rng.normal(0, s, (vocab_size, hidden_dim)).astype(np.float32)
@@ -122,9 +120,9 @@ class DecoderRNN:
         if c is not None:
             x = x + c
 
-        for l in range(self.num_layers):
-            h[l] = np.tanh(x @ self.w_ih[l].T + h[l] @ self.w_hh[l].T + self.b_h[l])
-            x = h[l]
+        for layer in range(self.num_layers):
+            h[layer] = np.tanh(x @ self.w_ih[layer].T + h[layer] @ self.w_hh[layer].T + self.b_h[layer])
+            x = h[layer]
 
         logits = x @ self.w_out.T + self.b_out
         return logits[0], h
@@ -140,9 +138,9 @@ class DecoderRNN:
                 step_idx = min(t, conductor_codes.shape[1] - 1)
                 x = x + conductor_codes[:, step_idx, :]
 
-            for l in range(self.num_layers):
-                h[l] = np.tanh(x @ self.w_ih[l].T + h[l] @ self.w_hh[l].T + self.b_h[l])
-                x = h[l]
+            for layer in range(self.num_layers):
+                h[layer] = np.tanh(x @ self.w_ih[layer].T + h[layer] @ self.w_hh[layer].T + self.b_h[layer])
+                x = h[layer]
 
             logits = x @ self.w_out.T + self.b_out
             logits_list.append(logits)
@@ -160,7 +158,7 @@ class MusicVAE:
         self.encoder = EncoderRNN(self.config.vocab_size, self.config.encoder_dim, self.config.num_encoder_layers)
         self.conductor = ConductorRNN(self.config.latent_dim, self.config.conductor_dim, self.config.num_conductor_steps)
         self.decoder = DecoderRNN(
-            self.config.vocab_size, self.config.decoder_dim,
+            self.config.conductor_dim, self.config.decoder_dim,
             self.config.vocab_size, self.config.num_decoder_layers
         )
 
@@ -177,7 +175,6 @@ class MusicVAE:
         return self.config.kl_beta
 
     def encode(self, tokens: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        seq_len = tokens.shape[1]
         x = np.eye(self.config.vocab_size, dtype=np.float32)[tokens]
         x = x.transpose(1, 0, 2)
 
@@ -289,7 +286,6 @@ class MusicVAE:
         }
 
     def encode_notes(self, notes: list[NoteToken], encoding: str = "remi") -> np.ndarray:
-        from calliope.audio.midi_representations import encode_note_sequence
         tokens = encode_note_sequence(notes, encoding)
         arr = np.full((1, self.config.max_seq_len), 0, dtype=np.int32)
         arr[0, :min(len(tokens), self.config.max_seq_len)] = tokens[:self.config.max_seq_len]

@@ -3,9 +3,11 @@ import { ChevronDown, ChevronUp, Cpu, Download, GitBranch, Keyboard, Mic, Plus }
 import {
   alignAamati,
   analyzeBrief,
+  composeFromAamati,
   generatePlan,
   createRecordingSession,
   uploadRecordingFile,
+  type AamatiComposeResult,
   type GenerateDepth,
   type RouterProvider,
 } from "../api/client";
@@ -17,6 +19,8 @@ import { ExportDialog } from "../components/studio/ExportDialog";
 import { KeyboardShortcuts } from "../components/studio/KeyboardShortcuts";
 import { MasterBus } from "../components/studio/MasterBus";
 import { MixerConsole, type MixerTrack } from "../components/studio/MixerConsole";
+import { LlmOutput } from "../components/pipeline/LlmOutput";
+import { AamatiSteerCard } from "../components/studio/AamatiSteerCard";
 import { StudioTransport, type TransportState } from "../components/studio/StudioTransport";
 import { TimelineView, type TimelineClip } from "../components/studio/TimelineView";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
@@ -120,6 +124,9 @@ export function Studio() {
   const [busyA, setBusyA] = useState(false);
   const [busyM, setBusyM] = useState(false);
   const [busyG, setBusyG] = useState(false);
+  const [busyC, setBusyC] = useState(false);
+  const [pipeLocked, setPipeLocked] = useState<AamatiComposeResult | null>(null);
+  const [pipeFree, setPipeFree] = useState<AamatiComposeResult | null>(null);
 
   const [playHint, setPlayHint] = useState("");
 
@@ -507,6 +514,22 @@ export function Studio() {
     }
   }
 
+  async function runComposeAb() {
+    setBusyC(true);
+    setPipeLocked(null);
+    setPipeFree(null);
+    try {
+      const [a, b] = await Promise.all([composeFromAamati(pipeText, true), composeFromAamati(pipeText, false)]);
+      setPipeLocked(a);
+      setPipeFree(b);
+      setBpm(a.steer.bpm);
+    } catch (e) {
+      setPipeAamati(String(e));
+    } finally {
+      setBusyC(false);
+    }
+  }
+
   async function runFullGenerate() {
     setBusyG(true);
     setPipePlan("");
@@ -767,14 +790,14 @@ export function Studio() {
                   {planBusy ? "Generating…" : "Generate plan (Ollama)"}
                 </button>
                 {planMeta && <p className="daw-architect__meta">{planMeta}</p>}
-                {planOut && <pre className="daw-architect__out">{planOut}</pre>}
+                {planOut && <LlmOutput text={planOut} compact />}
               </div>
             )}
             {inspectorTab === "pipeline" && (
               <div className="daw-pipeline">
                 <div className="daw-pipeline__intro">
                   <GitBranch size={14} />
-                  Embedded pipeline — analyze → Aamati → LLM
+                  Embedded pipeline — analyze → Aamati → lock knobs → LLM
                 </div>
                 <div>
                   <label>Brief</label>
@@ -795,6 +818,9 @@ export function Studio() {
                   <button type="button" disabled={busyM} onClick={() => void runAamatiAlign()}>
                     {busyM ? "…" : "Aamati"}
                   </button>
+                  <button type="button" disabled={busyC} onClick={() => void runComposeAb()}>
+                    {busyC ? "…" : "A/B compose"}
+                  </button>
                   <button type="button" className="is-primary" disabled={busyG} onClick={() => void runFullGenerate()}>
                     {busyG ? "…" : "Full LLM"}
                   </button>
@@ -802,7 +828,13 @@ export function Studio() {
                 {pipeMeta && <p className="daw-architect__meta">{pipeMeta}</p>}
                 {pipeAnalysis && <pre className="daw-architect__out">{pipeAnalysis}</pre>}
                 {pipeAamati && <pre className="daw-architect__out">{pipeAamati}</pre>}
-                {pipePlan && <pre className="daw-architect__out">{pipePlan}</pre>}
+                {(pipeLocked || pipeFree) && (
+                  <div className="aamati-steer-row aamati-steer-row--daw">
+                    {pipeLocked && <AamatiSteerCard title="Aamati-locked" result={pipeLocked} />}
+                    {pipeFree && <AamatiSteerCard title="Brief-only" result={pipeFree} />}
+                  </div>
+                )}
+                {pipePlan && <LlmOutput text={pipePlan} compact />}
               </div>
             )}
           </div>

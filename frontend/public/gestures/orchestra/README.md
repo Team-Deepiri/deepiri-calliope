@@ -12,13 +12,13 @@ Baton plays **MIDI only** (`.mid`). Files are listed in `manifest.json`.
 | `cornfield-chase.mid` | Cornfield Chase | Interstellar — via Nonstop2k |
 | `no-time-for-caution.mid` | No Time for Caution | Interstellar — via Contrebombarde |
 | `time-inception.mid` | Time (Inception) | via Nonstop2k |
+| `The_Landing_from_First_Man.mid` | The Landing (First Man) | Justin Hurwitz — MIDI from public audio (prototype only) |
+| `Can_You_Hear_The_Music.mid` | Can You Hear The Music | Oppenheimer — [Online Sequencer #3591131](https://onlinesequencer.net/3591131); playback uses `timeScale: 3` (export was ~400 BPM / too fast) |
 | `star-wars.mid` | Star Wars | via SynthesiaManiac |
 
 **Parked (not in picker):** `mission-impossible.mid` — dense drum/bass bed buries the melody with current playback.
 
-**Not wired:** none currently — all listed scores are MIDI.
-
-Baton maps GM programs to FluidR3 soundfonts (plus a sampled grand for piano and TR-808 for drums).
+Baton maps GM programs to FluidR3 soundfonts (sampled grand for acoustic piano; orchestral percussion for drum tracks).
 
 ## Sources / attribution
 
@@ -35,6 +35,8 @@ Baton maps GM programs to FluidR3 soundfonts (plus a sampled grand for piano and
 - No Time for Caution MIDI: Contrebombarde  
 - Star Wars MIDI: SynthesiaManiac  
 - Mission Impossible MIDI (parked): SynthesiaManiac  
+- The Landing (First Man): Justin Hurwitz — MIDI transcribed from a public performance for internal prototyping only; not cleared for redistribution  
+- Can You Hear The Music (Oppenheimer): Ludwig Göransson — sequence from [Online Sequencer #3591131](https://onlinesequencer.net/3591131); prototype use only
 
 Redistribute only if your use complies with each source’s terms. Prefer Mutopia / clearly licensed MIDI when shipping broadly.
 

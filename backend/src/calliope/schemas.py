@@ -160,6 +160,45 @@ class AamatiAlignResponse(BaseModel):
     onnx_probabilities: dict[str, float] | None = None
 
 
+class AamatiMixSteerOut(BaseModel):
+    brightness: float
+    warmth: float
+    punch: float
+    stereo_width: float
+    target_lufs: float
+
+
+class AamatiSteerOut(BaseModel):
+    mood: str
+    mood_score: float
+    source: str
+    bpm: int
+    key: str
+    scale_type: str
+    harmony_mood: str
+    drum_density: float
+    swing: float
+    fill_activity: float
+    mix: AamatiMixSteerOut
+    rationale: str
+
+
+class AamatiComposeRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=8000)
+    constrain: bool = Field(
+        True,
+        description="If true, lock BPM/harmony/drums/mix to the Aamati top mood. If false, use brief energy/valence only.",
+    )
+
+
+class AamatiComposeResponse(BaseModel):
+    constrain: bool
+    steer: AamatiSteerOut
+    ranked_moods: list[MoodScoreOut]
+    arrangement: dict
+    llm_block: str
+
+
 # --- Science / DSP lab (numpy-backed, bounded buffers) ---
 
 
