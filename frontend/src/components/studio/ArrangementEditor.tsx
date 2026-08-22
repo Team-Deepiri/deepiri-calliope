@@ -18,7 +18,7 @@ interface ArrangementTrack {
   parentId?: string;
 }
 
-interface ArrangementClip {
+export interface ArrangementClip {
   id: string;
   trackId: string;
   name: string;
