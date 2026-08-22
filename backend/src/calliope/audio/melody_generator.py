@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 import numpy as np
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
 
 class MelodyGenerator:
@@ -83,4 +83,59 @@ class MelodyGenerator:
             if current_time >= (length_steps * step_duration):
                 break
                 
+        return melody
+
+    def generate_stepwise(
+        self,
+        length_steps: int,
+        chord_progression: List[List[int]],
+        rhythmic_density: float = 0.8,
+    ) -> List[Tuple[int, float, float]]:
+        """Mostly scale-step motion (±1 index), gentle contour."""
+        melody: List[Tuple[int, float, float]] = []
+        current_time = 0.0
+        step_duration = 0.25
+
+        full_scale: List[int] = []
+        for octave in [-1, 0, 1]:
+            for interval in self.scale:
+                full_scale.append(self.root_midi + interval + (octave * 12))
+
+        current_idx = len(full_scale) // 2
+
+        while current_time < length_steps * step_duration:
+            if random.random() < rhythmic_density:
+                direction = random.choice((-1, 0, 1))
+                current_idx = int(np.clip(current_idx + direction, 0, len(full_scale) - 1))
+                note = full_scale[current_idx]
+                duration = random.choice([1, 1, 2]) * step_duration
+                melody.append((int(note), current_time, duration))
+                current_time += duration
+            else:
+                current_time += step_duration
+
+        return melody
+
+    def generate_jumping(
+        self,
+        length_steps: int,
+        chord_progression: List[List[int]],
+        rhythmic_density: float = 0.7,
+    ) -> List[Tuple[int, float, float]]:
+        """Disjunct motion — frequent arpeggio-style leaps between chord tones."""
+        melody: List[Tuple[int, float, float]] = []
+        current_time = 0.0
+        step_duration = 0.25
+
+        while current_time < length_steps * step_duration:
+            if random.random() < rhythmic_density:
+                chord = chord_progression[int(current_time / 4) % len(chord_progression)]
+                octave_shift = 12 * random.choice((0, 1))
+                note = random.choice(chord) + octave_shift
+                duration = random.choice([1, 2]) * step_duration
+                melody.append((int(note), current_time, duration))
+                current_time += duration
+            else:
+                current_time += step_duration
+
         return melody
