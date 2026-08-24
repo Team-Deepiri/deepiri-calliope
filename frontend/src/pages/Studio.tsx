@@ -91,6 +91,7 @@ export function Studio() {
   const [zoom, setZoom] = useState(1);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [metronomeOn, setMetronomeOn] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [masterCh, setMasterCh] = useState<EngineMasterChannel>({ ...DEFAULT_MASTER_CHANNEL });
   const [automation, setAutomation] = useState<Record<string, AutomationPoint[]>>({});
@@ -293,6 +294,110 @@ export function Studio() {
     },
     [bpm],
   );
+
+  const onDeleteClip = useCallback((clipId: string) => {
+    setClips((prev) => prev.filter((c) => c.id !== clipId));
+  }, []);
+
+  const onDuplicateClip = useCallback(
+    (clipId: string) => {
+      const barSec = (60 / bpm) * 4;
+      setClips((prev) => {
+        const src = prev.find((c) => c.id === clipId);
+        if (!src) return prev;
+        const durBars = Math.max(1, Math.round(src.durationSec / barSec));
+        return [
+          ...prev,
+          {
+            ...src,
+            id: `clip-dup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            startBar: src.startBar + durBars,
+          },
+        ];
+      });
+    },
+    [bpm],
+  );
+
+  const onSplitClip = useCallback(
+    (clipId: string, atBar: number) => {
+      const barSec = (60 / bpm) * 4;
+      setClips((prev) => {
+        const idx = prev.findIndex((c) => c.id === clipId);
+        if (idx < 0) return prev;
+        const c = prev[idx];
+        const cutSec = atBar * barSec - c.startBar * barSec;
+        if (cutSec <= 0.05 || cutSec >= c.durationSec - 0.05) return prev;
+        const left = { ...c, durationSec: cutSec };
+        const right: StudioClip = {
+          ...c,
+          id: `clip-split-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          startBar: atBar,
+          durationSec: c.durationSec - cutSec,
+          waveformPeaks: c.waveformPeaks
+            ? c.waveformPeaks.slice(Math.floor((cutSec / c.durationSec) * c.waveformPeaks.length))
+            : undefined,
+        };
+        return [...prev.slice(0, idx), left, right, ...prev.slice(idx + 1)];
+      });
+    },
+    [bpm],
+  );
+
+  const onRenameClip = useCallback((clipId: string, name: string) => {
+    setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, name } : c)));
+  }, []);
+
+  const onRenderClipAudio = useCallback(
+    async (clipId: string) => {
+      const engine = engineRef.current;
+      const clip = clipsRef.current.find((c) => c.id === clipId);
+      if (!engine || !clip || exporting) return;
+      try {
+        setExporting(true);
+        const barSec = (60 / bpm) * 4;
+        const endBar = clip.startBar + Math.max(1, Math.ceil(clip.durationSec / barSec));
+        const buf = await engine.renderMix({
+          bpm,
+          clips: [clip],
+          tracks: tracksRef.current,
+          rangeBars: { startBar: clip.startBar, endBar },
+          tailSec: 0.4,
+        });
+        downloadBlob(encodeWav(buf, 24), `${clip.name.replace(/[^a-z0-9_-]+/gi, "_") || "clip"}.wav`);
+      } catch (e) {
+        console.error("clip render failed", e);
+        window.alert("Failed to render this clip as audio.");
+      } finally {
+        setExporting(false);
+      }
+    },
+    [bpm, exporting],
+  );
+
+  const onRenameTrackName = useCallback(
+    (trackId: string, name: string) => onUpdateTrack(trackId, { name }),
+    [onUpdateTrack],
+  );
+
+  const onDeleteTrackWithClips = useCallback((trackId: string) => {
+    if (!window.confirm("Delete this track and every clip on it?")) return;
+    if (tracksRef.current.length <= 1) {
+      window.alert("The mixer needs at least one track.");
+      return;
+    }
+    setTracks((prev) => prev.filter((t) => t.id !== trackId));
+    setClips((prev) => prev.filter((c) => c.trackId !== trackId));
+  }, []);
+
+  const onToggleMetronome = useCallback(() => {
+    setMetronomeOn((prev) => {
+      const next = !prev;
+      ensureEngine().setMetronome(next);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selectedAutomation: AutomationPoint[] = automation[selectedTrackId] ?? [];
   const onUpdateSelectedAutomation = useCallback(
@@ -581,6 +686,8 @@ export function Studio() {
           onPlay={() => void onPlay()}
           onStop={onStop}
           onRecord={onRecord}
+          metronomeOn={metronomeOn}
+          onToggleMetronome={onToggleMetronome}
           getPlayheadBar={getPlayheadBar}
         />
         {playHint && <span className="daw-toolbar__hint">{playHint}</span>}
@@ -691,6 +798,12 @@ export function Studio() {
                 onClipMove={onClipMove}
                 onClipResize={onClipResize}
                 onSectionChange={setSections}
+                onDeleteClip={onDeleteClip}
+                onDuplicateClip={onDuplicateClip}
+                onSplitClip={onSplitClip}
+                onRenameClip={onRenameClip}
+                onRenderClip={onRenderClipAudio}
+                onTrackColorChange={(trackId, color) => onUpdateTrack(trackId, { color })}
               />
             ) : (
               <TimelineView
@@ -870,7 +983,13 @@ export function Studio() {
       </div>
 
       <div className="daw__mixer-wrap">
-        <MixerConsole tracks={tracks} onUpdateTrack={onUpdateTrack} readMeter={readTrackMeter} />
+        <MixerConsole
+          tracks={tracks}
+          onUpdateTrack={onUpdateTrack}
+          onRenameTrack={onRenameTrackName}
+          onDeleteTrack={onDeleteTrackWithClips}
+          readMeter={readTrackMeter}
+        />
         <MasterBus
           masterChannel={{
             volume: masterCh.volumeDb,

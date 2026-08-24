@@ -309,6 +309,9 @@ export class StudioEngine {
   private automation = new Map<string, EngineAutomationPoint[]>();
   private masterCh: EngineMasterChannel = { ...DEFAULT_MASTER_CHANNEL };
   private lastTracks: EngineTrack[] = [];
+  private metronome = false;
+  private nextClickBeat = 0; // absolute beat index scheduled through
+  private clicks: OscillatorNode[] = [];
 
   async ensure(): Promise<AudioContext> {
     if (!this.ctx) {
@@ -533,6 +536,7 @@ export class StudioEngine {
     const barSec = (60 / this.bpm) * 4;
     this.startCtxTime = ctx.currentTime;
     this.playing = true;
+    this.nextClickBeat = Math.round(this.startBar * 4);
     this.scheduleAutomation(barSec);
 
     for (const clip of opts.clips) {
@@ -560,15 +564,77 @@ export class StudioEngine {
       const bar = Math.floor(barFloat) + 1;
       const beat = Math.floor((barFloat % 1) * 4);
       this.onBar?.(bar, beat);
+      this.scheduleClicks();
       this.raf = requestAnimationFrame(tick);
     };
     this.raf = requestAnimationFrame(tick);
+  }
+
+  /** Audible click track — scheduled just-in-time with a 120ms lookahead. */
+  setMetronome(on: boolean) {
+    this.metronome = on;
+    if (on && this.playing) {
+      this.nextClickBeat = Math.ceil(this.currentBar() * 4);
+    } else if (!on) {
+      for (const c of this.clicks) {
+        try {
+          c.stop();
+          c.disconnect();
+        } catch {
+          /* already ended */
+        }
+      }
+      this.clicks = [];
+    }
+  }
+
+  getMetronome() {
+    return this.metronome;
+  }
+
+  private scheduleClicks() {
+    if (!this.metronome || !this.playing || !this.ctx) return;
+    const barSec = (60 / this.bpm) * 4;
+    const beatSec = barSec / 4;
+    const lookahead = 0.12;
+    let scheduled = 0;
+    while (
+      scheduled < 100 &&
+      this.nextClickBeat * beatSec + this.startCtxTime < this.ctx.currentTime + lookahead
+    ) {
+      const t = this.nextClickBeat * beatSec + this.startCtxTime;
+      const downbeat = this.nextClickBeat % 4 === 0;
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.frequency.value = downbeat ? 1200 : 820;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(downbeat ? 0.5 : 0.3, t + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + (downbeat ? 0.09 : 0.05));
+      osc.connect(g);
+      g.connect(this.ctx.destination); // click bypasses FX/fader by design
+      osc.start(Math.max(this.ctx.currentTime, t));
+      osc.stop(Math.max(this.ctx.currentTime, t) + 0.12);
+      osc.onended = () => {
+        try {
+          osc.disconnect();
+          g.disconnect();
+        } catch {
+          /* ignore */
+        }
+        this.clicks = this.clicks.filter((c) => c !== osc);
+      };
+      this.clicks.push(osc);
+      this.nextClickBeat += 1;
+      scheduled += 1;
+    }
   }
 
   /**
    * Offline-render the arrangement to an AudioBuffer through the same graph
    * (track gain/pan → FX chain → master bus). Used by the export dialog.
    * `onlyTrackId` renders a single stem (all other tracks muted).
+   * `rangeBars` renders a bar window (used for "Render as Audio" on a clip);
+   * sources are trimmed to the window on both ends.
    */
   async renderMix(opts: {
     bpm: number;
@@ -577,17 +643,25 @@ export class StudioEngine {
     tailSec?: number;
     targetSampleRate?: number;
     onlyTrackId?: string;
+    rangeBars?: { startBar: number; endBar: number };
   }): Promise<AudioBuffer> {
     const refCtx = await this.ensure();
     await this.preload(opts.clips);
 
     const barSec = (60 / opts.bpm) * 4;
     let endBar = 0;
-    for (const c of opts.clips) {
-      endBar = Math.max(endBar, c.startBar + barsFromDuration(c.durationSec, opts.bpm));
+    let startBar = 0;
+    if (opts.rangeBars) {
+      startBar = Math.max(0, opts.rangeBars.startBar);
+      endBar = opts.rangeBars.endBar;
+      if (endBar <= startBar) throw new Error("Empty render range");
+    } else {
+      for (const c of opts.clips) {
+        endBar = Math.max(endBar, c.startBar + barsFromDuration(c.durationSec, opts.bpm));
+      }
+      if (endBar <= 0) throw new Error("Nothing to render — timeline is empty");
     }
-    if (endBar <= 0) throw new Error("Nothing to render — timeline is empty");
-    const durationSec = endBar * barSec + (opts.tailSec ?? 2);
+    const durationSec = (endBar - startBar) * barSec + (opts.tailSec ?? 2);
     const sampleRate = Math.max(8000, Math.min(192000, opts.targetSampleRate ?? refCtx.sampleRate));
 
     const offline = new OfflineAudioContext(
@@ -617,12 +691,19 @@ export class StudioEngine {
     for (const clip of opts.clips) {
       const buf = this.buffers.get(`${clip.sessionId}:${clip.recordingId}`);
       if (!buf) continue;
-      const src = offline.createBufferSource();
-      src.buffer = buf;
       const g = gains.get(clip.trackId);
       if (!g) continue;
+      const clipEndBar = clip.startBar + barsFromDuration(clip.durationSec, opts.bpm);
+      if (clipEndBar <= startBar || clip.startBar >= endBar) continue;
+      const src = offline.createBufferSource();
+      src.buffer = buf;
       src.connect(g);
-      src.start(Math.max(0, clip.startBar * barSec));
+      const when = Math.max(0, clip.startBar - startBar) * barSec;
+      const headClip = Math.max(0, startBar - clip.startBar) * barSec;
+      if (headClip >= buf.duration) continue;
+      const playSec = Math.min(buf.duration - headClip, (endBar - Math.max(clip.startBar, startBar)) * barSec);
+      if (playSec <= 0) continue;
+      src.start(when, headClip, playSec);
     }
 
     return await offline.startRendering();
@@ -657,6 +738,15 @@ export class StudioEngine {
       }
     }
     this.sources = [];
+    for (const c of this.clicks) {
+      try {
+        c.stop();
+        c.disconnect();
+      } catch {
+        /* already ended */
+      }
+    }
+    this.clicks = [];
   }
 
   dispose() {

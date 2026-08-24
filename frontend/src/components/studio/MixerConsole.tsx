@@ -24,10 +24,12 @@ function toPercent(linear: number): number {
 type MixerConsoleProps = {
   tracks: MixerTrack[];
   onUpdateTrack: (trackId: string, updates: Partial<MixerTrack>) => void;
+  onRenameTrack?: (trackId: string, name: string) => void;
+  onDeleteTrack?: (trackId: string) => void;
   readMeter?: (trackId: string) => { peak: number; rms: number };
 };
 
-export function MixerConsole({ tracks, onUpdateTrack, readMeter }: MixerConsoleProps) {
+export function MixerConsole({ tracks, onUpdateTrack, onRenameTrack, onDeleteTrack, readMeter }: MixerConsoleProps) {
   const [meters, setMeters] = useState<Record<string, MeterSample>>({});
   const holdsRef = useRef<Record<string, number>>({});
 
@@ -119,10 +121,27 @@ export function MixerConsole({ tracks, onUpdateTrack, readMeter }: MixerConsoleP
                   S
                 </button>
               </div>
-              <span className="daw-strip__name" title={track.name}>
+              <span
+                className="daw-strip__name"
+                title={track.name}
+                onDoubleClick={() => {
+                  const name = window.prompt("Rename track", track.name);
+                  if (name && name.trim()) onRenameTrack?.(track.id, name.trim());
+                }}
+              >
                 <i className="daw-strip__dot" style={{ background: track.color }} />
                 {track.name}
               </span>
+              {onDeleteTrack && (
+                <button
+                  type="button"
+                  className="daw-strip__delete"
+                  aria-label={`Delete ${track.name}`}
+                  onClick={() => onDeleteTrack(track.id)}
+                >
+                  ×
+                </button>
+              )}
             </div>
           );
         })}
