@@ -19,6 +19,7 @@ import { ExportDialog } from "../components/studio/ExportDialog";
 import { KeyboardShortcuts } from "../components/studio/KeyboardShortcuts";
 import { MasterBus } from "../components/studio/MasterBus";
 import { MixerConsole, type MixerTrack } from "../components/studio/MixerConsole";
+import { SplashIntro } from "../components/studio/SplashIntro";
 import { LlmOutput } from "../components/pipeline/LlmOutput";
 import { AamatiSteerCard } from "../components/studio/AamatiSteerCard";
 import { StudioTransport, type TransportState } from "../components/studio/StudioTransport";
@@ -94,6 +95,7 @@ export function Studio() {
   const [masterCh, setMasterCh] = useState<EngineMasterChannel>({ ...DEFAULT_MASTER_CHANNEL });
   const [automation, setAutomation] = useState<Record<string, AutomationPoint[]>>({});
   const [meter, setMeter] = useState({ peak: 0, rms: 0 });
+  const [booted, setBooted] = useState(false);
 
   const [bpm, setBpm] = useState(132);
   const [transport, setTransport] = useState<TransportState>({
@@ -567,6 +569,7 @@ export function Studio() {
 
   return (
     <div className="daw">
+      {!booted && <SplashIntro onDone={() => setBooted(true)} />}
       <header className="daw__toolbar">
         <span className="daw-toolbar__brand">
           <strong>CALLIOPE</strong> Studio

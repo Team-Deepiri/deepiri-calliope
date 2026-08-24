@@ -174,6 +174,19 @@ export function TimelineView({
               </div>
             );
           })}
+          {clips.length === 0 && (
+            <div className="daw-timeline__empty" aria-hidden="true">
+              <div className="daw-timeline__empty-eq">
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                  <i key={i} style={{ ["--i" as string]: String(i) }} />
+                ))}
+              </div>
+              <p className="daw-timeline__empty-title">Your timeline is waiting</p>
+              <p className="daw-timeline__empty-hint">
+                Drop audio on a track · press <kbd>R</kbd> to record · generate from the AI panel
+              </p>
+            </div>
+          )}
           <div ref={playheadRef} className="daw-timeline__playhead" style={{ left: playheadLeft }} />
         </div>
       </div>
