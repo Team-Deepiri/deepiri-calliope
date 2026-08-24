@@ -53,7 +53,6 @@ export function SplashIntro({ onDone }: { onDone: () => void }) {
 
     void Promise.race([health, timeout]).then(() => {
       if (cancelled) return;
-      setStatusLine((s) => s);
       const elapsed = performance.now() - started;
       const wait = Math.max(0, MIN_SPLASH_MS - elapsed);
       window.setTimeout(() => {
