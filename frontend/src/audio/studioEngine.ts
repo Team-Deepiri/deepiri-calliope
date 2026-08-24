@@ -597,7 +597,11 @@ export class StudioEngine {
     const barSec = (60 / this.bpm) * 4;
     const beatSec = barSec / 4;
     const lookahead = 0.12;
-    while (this.nextClickBeat * beatSec + this.startCtxTime < this.ctx.currentTime + lookahead) {
+    let scheduled = 0;
+    while (
+      scheduled < 100 &&
+      this.nextClickBeat * beatSec + this.startCtxTime < this.ctx.currentTime + lookahead
+    ) {
       const t = this.nextClickBeat * beatSec + this.startCtxTime;
       const downbeat = this.nextClickBeat % 4 === 0;
       const osc = this.ctx.createOscillator();
@@ -621,6 +625,7 @@ export class StudioEngine {
       };
       this.clicks.push(osc);
       this.nextClickBeat += 1;
+      scheduled += 1;
     }
   }
 
