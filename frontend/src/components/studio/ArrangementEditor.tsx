@@ -59,6 +59,12 @@ interface ArrangementEditorProps {
   onClipMove: (clipId: string, newTrackId: string, newStartBar: number) => void;
   onClipResize: (clipId: string, newDuration: number) => void;
   onSectionChange: (sections: Section[]) => void;
+  onDeleteClip?: (clipId: string) => void;
+  onDuplicateClip?: (clipId: string) => void;
+  onSplitClip?: (clipId: string, atBar: number) => void;
+  onRenameClip?: (clipId: string, name: string) => void;
+  onRenderClip?: (clipId: string) => void;
+  onTrackColorChange?: (trackId: string, color: string) => void;
 }
 
 const SECTION_ICONS: Record<string, typeof Sun> = {
@@ -79,6 +85,7 @@ function getSectionIcon(name: string) {
 export function ArrangementEditor({
   tracks, clips, sections, isPlaying, currentPosition,
   zoom, getPlayheadBar, onZoomChange, onClipMove, onClipResize, onSectionChange,
+  onDeleteClip, onDuplicateClip, onSplitClip, onRenameClip, onRenderClip, onTrackColorChange,
 }: ArrangementEditorProps) {
   const rulerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -87,6 +94,7 @@ export function ArrangementEditor({
     id: string;
     startX: number;
     startBar: number;
+    trackId?: string;
   } | null>(null);
   const [resizing, setResizing] = useState<{
     clipId: string;
@@ -156,6 +164,7 @@ export function ArrangementEditor({
       id: clip.id,
       startX: e.clientX,
       startBar: clip.startBar,
+      trackId: clip.trackId,
     });
   }, []);
 
@@ -171,7 +180,7 @@ export function ArrangementEditor({
       const dx = e.clientX - dragging.startX;
       const barDelta = Math.round(dx / barWidth);
       const newStart = Math.max(0, dragging.startBar + barDelta);
-      onClipMove(dragging.id, tracks[0]?.id || "", newStart);
+      onClipMove(dragging.id, dragging.trackId ?? tracks[0]?.id ?? "", newStart);
     }
     if (resizing) {
       const dx = e.clientX - resizing.startX;
@@ -201,31 +210,30 @@ export function ArrangementEditor({
     const clip = contextMenu.clip;
     switch (action) {
       case "duplicate":
-        console.log("Duplicate clip:", clip.id);
+        onDuplicateClip?.(clip.id);
         break;
       case "delete":
-        console.log("Delete clip:", clip.id);
+        onDeleteClip?.(clip.id);
         break;
       case "split":
-        console.log("Split clip at playhead:", clip.id);
+        onSplitClip?.(clip.id, getPlayheadBar ? Math.floor(getPlayheadBar()) : clip.startBar + 1);
         break;
-      case "rename":
-        console.log("Rename clip:", clip.id);
+      case "rename": {
+        const name = window.prompt("Rename clip", clip.name);
+        if (name && name.trim()) onRenameClip?.(clip.id, name.trim());
         break;
+      }
       case "color":
         setColorPickerTrack(clip.trackId);
         break;
       case "render":
-        console.log("Render clip as audio:", clip.id);
-        break;
-      case "loop":
-        console.log("Toggle loop on clip:", clip.id);
+        onRenderClip?.(clip.id);
         break;
       case "edit":
         setEditingClip(clip);
         break;
     }
-  }, [contextMenu]);
+  }, [contextMenu, onDeleteClip, onDuplicateClip, onSplitClip, onRenameClip, onRenderClip, getPlayheadBar]);
 
   const toggleGroup = useCallback((trackId: string) => {
     setCollapsedGroups((prev) => {
@@ -237,30 +245,35 @@ export function ArrangementEditor({
   }, []);
 
   const updateTrackColor = useCallback((trackId: string, color: string) => {
-    console.log("Update track color:", trackId, color);
+    onTrackColorChange?.(trackId, color);
     setColorPickerTrack(null);
-  }, []);
+  }, [onTrackColorChange]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const selectedClip = contextMenu?.clip;
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!selectedClip) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedClip) console.log("Delete clip:", selectedClip.id);
+        e.preventDefault();
+        onDeleteClip?.(selectedClip.id);
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "d") {
         e.preventDefault();
-        if (selectedClip) console.log("Duplicate clip:", selectedClip.id);
+        onDuplicateClip?.(selectedClip.id);
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "e") {
         e.preventDefault();
-        if (selectedClip) console.log("Split clip:", selectedClip.id);
+        onSplitClip?.(
+          selectedClip.id,
+          getPlayheadBar ? Math.floor(getPlayheadBar()) : selectedClip.startBar + 1,
+        );
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [contextMenu]);
+  }, [contextMenu, onDeleteClip, onDuplicateClip, onSplitClip, getPlayheadBar]);
 
   // Build track tree (respect parentId for groups)
   const visibleTracks = useMemo(() => {

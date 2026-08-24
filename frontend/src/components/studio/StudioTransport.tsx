@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Circle, Pause, Play, SkipBack } from "lucide-react";
+import { Circle, Pause, Play, SkipBack, Triangle } from "lucide-react";
 
 export type TransportState = {
   playing: boolean;
@@ -16,6 +16,8 @@ type StudioTransportProps = {
   onPlay: () => void;
   onStop: () => void;
   onRecord: () => void;
+  metronomeOn?: boolean;
+  onToggleMetronome?: () => void;
   getPlayheadBar?: () => number;
 };
 
@@ -26,6 +28,8 @@ export function StudioTransport({
   onPlay,
   onStop,
   onRecord,
+  metronomeOn,
+  onToggleMetronome,
   getPlayheadBar,
 }: StudioTransportProps) {
   const positionRef = useRef<HTMLSpanElement>(null);
@@ -72,6 +76,18 @@ export function StudioTransport({
       >
         <Circle size={14} fill="currentColor" />
       </button>
+      {onToggleMetronome && (
+        <button
+          type="button"
+          className={`daw-transport__btn daw-transport__btn--metro${metronomeOn ? " is-active" : ""}`}
+          onClick={onToggleMetronome}
+          title="Metronome"
+          aria-label="Toggle metronome"
+          aria-pressed={metronomeOn}
+        >
+          <Triangle size={15} fill="currentColor" />
+        </button>
+      )}
       <span className="daw-transport__divider" aria-hidden />
       <span className={`daw-transport__led${transport.playing ? " is-playing" : ""}`}>
         <i className="daw-transport__led-dot" data-state={transport.recording ? "rec" : transport.playing ? "play" : "idle"} />
