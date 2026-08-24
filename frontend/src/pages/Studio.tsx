@@ -70,6 +70,7 @@ type StudioClip = EngineClip & {
   name: string;
   color: string;
   durationSec: number;
+  waveformPeaks?: number[];
 };
 
 export function Studio() {
@@ -212,9 +213,16 @@ export function Studio() {
         startBar: c.startBar,
         durationBars: barsFromDuration(c.durationSec, bpm),
         color: c.color,
+        waveformPeaks: c.waveformPeaks,
       })),
     [clips, bpm],
   );
+
+  const getPlayheadBar = useCallback(() => {
+    const engine = engineRef.current;
+    if (engine?.isPlaying()) return engine.currentBar() + 1;
+    return transport.bar;
+  }, [transport.bar]);
 
   const durationBars = useMemo(() => {
     const fromClips = timelineClips.reduce((m, c) => Math.max(m, c.startBar + c.durationBars), 32);
@@ -380,7 +388,14 @@ export function Studio() {
         color: track?.color ?? "#3dd68c",
       };
       setClips((prev) => [...prev, clip]);
-      void ensureEngine().loadClip(clip);
+      void ensureEngine()
+        .loadClip(clip)
+        .then(() => {
+          const peaks = engineRef.current?.getClipPeaks(clip.sessionId, clip.recordingId);
+          if (peaks) {
+            setClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, waveformPeaks: peaks } : c)));
+          }
+        });
     },
     [],
   );
@@ -545,6 +560,11 @@ export function Studio() {
     }
   }
 
+  const readTrackMeter = useCallback(
+    (trackId: string) => engineRef.current?.readTrackMeter(trackId) ?? { peak: 0, rms: 0 },
+    [],
+  );
+
   return (
     <div className="daw">
       <header className="daw__toolbar">
@@ -558,6 +578,7 @@ export function Studio() {
           onPlay={() => void onPlay()}
           onStop={onStop}
           onRecord={onRecord}
+          getPlayheadBar={getPlayheadBar}
         />
         {playHint && <span className="daw-toolbar__hint">{playHint}</span>}
         <span className="daw-toolbar__spacer" />
@@ -655,11 +676,13 @@ export function Studio() {
                     duration: barsFromDuration(c.durationSec, bpm),
                     color: c.color,
                     type: "audio",
+                    waveformPeaks: c.waveformPeaks,
                   }),
                 )}
                 sections={sections}
                 isPlaying={transport.playing}
                 currentPosition={transport.bar - 1}
+                getPlayheadBar={getPlayheadBar}
                 zoom={zoom}
                 onZoomChange={setZoom}
                 onClipMove={onClipMove}
@@ -674,6 +697,8 @@ export function Studio() {
                 tracks={tracks}
                 selectedTrackId={selectedTrackId}
                 playheadBar={transport.bar}
+                isPlaying={transport.playing}
+                getPlayheadBar={getPlayheadBar}
                 clips={timelineClips}
                 onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
               />
@@ -842,7 +867,7 @@ export function Studio() {
       </div>
 
       <div className="daw__mixer-wrap">
-        <MixerConsole tracks={tracks} onUpdateTrack={onUpdateTrack} />
+        <MixerConsole tracks={tracks} onUpdateTrack={onUpdateTrack} readMeter={readTrackMeter} />
         <MasterBus
           masterChannel={{
             volume: masterCh.volumeDb,

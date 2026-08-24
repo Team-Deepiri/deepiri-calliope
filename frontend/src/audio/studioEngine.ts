@@ -108,6 +108,35 @@ function dbToGain(db: number): number {
   return Math.pow(10, db / 20);
 }
 
+/** Per-bucket absolute peak (0..1) for waveform rendering.
+ * Emits more buckets than the UI displays so clips can render crisply at
+ * any width (the view downsamples to its own WAVE_BUCKETS at draw time). */
+export function computePeaks(buffer: AudioBuffer, buckets = 480): number[] {
+  const channels: Float32Array[] = [];
+  for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
+  const size = Math.max(1, Math.floor(buffer.length / buckets));
+  const peaks: number[] = [];
+  let max = 1e-6;
+  for (let b = 0; b < buckets; b++) {
+    const start = b * size;
+    const end = Math.min(buffer.length, start + size);
+    let peak = 0;
+    for (let i = start; i < end; i++) {
+      for (const ch of channels) {
+        const v = Math.abs(ch[i]);
+        if (v > peak) peak = v;
+      }
+    }
+    if (peak > max) max = peak;
+    peaks.push(peak);
+  }
+  // Normalize so the loudest clip section fills the waveform area.
+  return peaks.map((p) => p / max);
+}
+
+/** Cap on cached waveform peak arrays; oldest entries are evicted first. */
+const MAX_PEAKS_CACHE_ENTRIES = 200;
+
 function recordingUrl(sessionId: string, recordingId: string): string {
   return `${apiBase}/v1/recordings/sessions/${sessionId}/files/${recordingId}/download`;
 }
@@ -264,8 +293,12 @@ export class StudioEngine {
   private meterBuf: Float32Array | null = null;
   private fx: ReturnType<typeof buildFxChain> | null = null;
   private buffers = new Map<string, AudioBuffer>();
+  private peaksCache = new Map<string, number[]>();
   private sources: AudioBufferSourceNode[] = [];
-  private trackNodes = new Map<string, { gain: GainNode; pan: StereoPannerNode }>();
+  private trackNodes = new Map<
+    string,
+    { gain: GainNode; pan: StereoPannerNode; analyser?: AnalyserNode; buf?: Float32Array }
+  >();
   private playing = false;
   private startCtxTime = 0;
   private startBar = 0;
@@ -391,12 +424,32 @@ export class StudioEngine {
     if (!nodes) {
       const gain = this.ctx.createGain();
       const pan = this.ctx.createStereoPanner();
+      const analyser = this.ctx.createAnalyser();
+      analyser.fftSize = 1024;
       gain.connect(pan);
       pan.connect(this.fx.input);
-      nodes = { gain, pan };
+      pan.connect(analyser); // meter tap (dead-end node, no output connection)
+      nodes = { gain, pan, analyser, buf: new Float32Array(analyser.fftSize) };
       this.trackNodes.set(trackId, nodes);
     }
     return nodes;
+  }
+
+  /** Realtime per-track meter read from the post-fader analyser tap. */
+  readTrackMeter(trackId: string): MasterMeter {
+    const nodes = this.trackNodes.get(trackId);
+    if (!nodes?.analyser || !nodes.buf) return { peak: 0, rms: 0 };
+    const buf = nodes.buf as Float32Array<ArrayBuffer>;
+    nodes.analyser.getFloatTimeDomainData(buf);
+    let peak = 0;
+    let sumSq = 0;
+    for (let i = 0; i < buf.length; i++) {
+      const v = buf[i];
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+      sumSq += v * v;
+    }
+    return { peak, rms: Math.sqrt(sumSq / buf.length) };
   }
 
   applyTracks(tracks: EngineTrack[]) {
@@ -426,6 +479,23 @@ export class StudioEngine {
       console.error("Failed to load clip audio", clip.id, e);
       return null;
     }
+  }
+
+  /** Normalized waveform peaks for a loaded clip, or null while loading. */
+  getClipPeaks(sessionId: string, recordingId: string): number[] | null {
+    const buf = this.buffers.get(`${sessionId}:${recordingId}`);
+    if (!buf) return null;
+    let peaks = this.peaksCache.get(`${sessionId}:${recordingId}`);
+    if (!peaks) {
+      peaks = computePeaks(buf);
+      while (this.peaksCache.size >= MAX_PEAKS_CACHE_ENTRIES) {
+        const oldest = this.peaksCache.keys().next().value;
+        if (oldest === undefined) break;
+        this.peaksCache.delete(oldest);
+      }
+      this.peaksCache.set(`${sessionId}:${recordingId}`, peaks);
+    }
+    return peaks;
   }
 
   async preload(clips: EngineClip[]) {
@@ -600,6 +670,7 @@ export class StudioEngine {
     this.meterBuf = null;
     this.fx = null;
     this.buffers.clear();
+    this.peaksCache.clear();
     this.trackNodes.clear();
   }
 }
