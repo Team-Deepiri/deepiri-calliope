@@ -8,6 +8,7 @@ import {
 import { ClipContextMenu, type ContextMenuAction } from "./ClipContextMenu";
 import { AudioClipEditor } from "./AudioClipEditor";
 import { MidiClipEditor } from "./MidiClipEditor";
+import { ClipWaveform } from "./TimelineView";
 
 interface ArrangementTrack {
   id: string;
@@ -53,6 +54,7 @@ interface ArrangementEditorProps {
   isPlaying: boolean;
   currentPosition: number;
   zoom: number;
+  getPlayheadBar?: () => number;
   onZoomChange: (zoom: number) => void;
   onClipMove: (clipId: string, newTrackId: string, newStartBar: number) => void;
   onClipResize: (clipId: string, newDuration: number) => void;
@@ -76,7 +78,7 @@ function getSectionIcon(name: string) {
 
 export function ArrangementEditor({
   tracks, clips, sections, isPlaying, currentPosition,
-  zoom, onZoomChange, onClipMove, onClipResize, onSectionChange,
+  zoom, getPlayheadBar, onZoomChange, onClipMove, onClipResize, onSectionChange,
 }: ArrangementEditorProps) {
   const rulerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -101,6 +103,9 @@ export function ArrangementEditor({
   // Clip editor modal state
   const [editingClip, setEditingClip] = useState<ArrangementClip | null>(null);
 
+  // Sub-frame playhead: rAF-driven translate while playing (no per-frame renders).
+  const arrangePlayheadRef = useRef<HTMLDivElement>(null);
+
   // Track color editing state
   const [colorPickerTrack, setColorPickerTrack] = useState<string | null>(null);
 
@@ -118,6 +123,23 @@ export function ArrangementEditor({
 
   const totalWidth = MAX_BARS * barWidth;
   const timelineHeight = tracks.reduce((sum, t) => sum + t.height, 0);
+
+  // Sub-frame playhead: rAF-driven translate while playing (no per-frame renders).
+  useEffect(() => {
+    if (!isPlaying || !getPlayheadBar) return;
+    let raf = 0;
+    const tick = () => {
+      const el = arrangePlayheadRef.current;
+      if (el) el.style.transform = `translateX(${Math.max(0, getPlayheadBar() - 1) * barWidth}px)`;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      const el = arrangePlayheadRef.current;
+      if (el) el.style.transform = "";
+    };
+  }, [isPlaying, getPlayheadBar, barWidth]);
 
   const handleRulerClick = useCallback((e: React.MouseEvent) => {
     const rect = rulerRef.current?.getBoundingClientRect();
@@ -451,7 +473,12 @@ export function ArrangementEditor({
                           onContextMenu={(e) => handleClipContextMenu(clip, e)}
                           onDoubleClick={() => handleDoubleClickClip(clip)}
                         >
-                          <div className="flex items-center gap-1.5 h-full px-2">
+                          {clip.waveformPeaks && clip.waveformPeaks.length > 0 && (
+                            <div className="absolute inset-0 flex items-end overflow-hidden rounded pointer-events-none opacity-70">
+                              <ClipWaveform peaks={clip.waveformPeaks} color={clip.color} />
+                            </div>
+                          )}
+                          <div className="relative flex items-center gap-1.5 h-full px-2">
                             <span className="text-[9px] font-bold truncate" style={{ color: clip.color }}>
                               {clip.name}
                             </span>
@@ -493,6 +520,7 @@ export function ArrangementEditor({
         {/* Playhead */}
         {isPlaying && (
           <div
+            ref={arrangePlayheadRef}
             className="playhead absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 shadow-lg shadow-red-500/30 pointer-events-none"
             style={{ left: `${currentPosition * barWidth + 128}px` }}
           />
