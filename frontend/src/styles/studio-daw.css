@@ -676,7 +676,6 @@
 .daw-strip__meter-scale i:nth-child(2) { bottom: 50%; }
 .daw-strip__meter-scale i:nth-child(3) { bottom: 75%; }
 .daw-strip__meter-scale i:nth-child(4) { bottom: 90.9%; background: rgba(232, 184, 74, 0.5); }
-.daw-strip__meter-scale i:nth-child(5) { display: none; }
 
 .daw-strip__meter-fill {
   position: absolute;

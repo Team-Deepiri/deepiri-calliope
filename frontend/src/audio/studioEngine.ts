@@ -108,21 +108,24 @@ function dbToGain(db: number): number {
   return Math.pow(10, db / 20);
 }
 
-/** Per-bucket absolute peak (0..1) for waveform rendering. */
+/** Per-bucket absolute peak (0..1) for waveform rendering.
+ * Emits more buckets than the UI displays so clips can render crisply at
+ * any width (the view downsamples to its own WAVE_BUCKETS at draw time). */
 export function computePeaks(buffer: AudioBuffer, buckets = 480): number[] {
-  const data = buffer.getChannelData(0);
-  const second = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
-  const size = Math.max(1, Math.floor(data.length / buckets));
+  const channels: Float32Array[] = [];
+  for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
+  const size = Math.max(1, Math.floor(buffer.length / buckets));
   const peaks: number[] = [];
   let max = 1e-6;
   for (let b = 0; b < buckets; b++) {
     const start = b * size;
-    const end = Math.min(data.length, start + size);
+    const end = Math.min(buffer.length, start + size);
     let peak = 0;
     for (let i = start; i < end; i++) {
-      let v = Math.abs(data[i]);
-      if (second) v = Math.max(v, Math.abs(second[i]));
-      if (v > peak) peak = v;
+      for (const ch of channels) {
+        const v = Math.abs(ch[i]);
+        if (v > peak) peak = v;
+      }
     }
     if (peak > max) max = peak;
     peaks.push(peak);
@@ -130,6 +133,9 @@ export function computePeaks(buffer: AudioBuffer, buckets = 480): number[] {
   // Normalize so the loudest clip section fills the waveform area.
   return peaks.map((p) => p / max);
 }
+
+/** Cap on cached waveform peak arrays; oldest entries are evicted first. */
+const MAX_PEAKS_CACHE_ENTRIES = 200;
 
 function recordingUrl(sessionId: string, recordingId: string): string {
   return `${apiBase}/v1/recordings/sessions/${sessionId}/files/${recordingId}/download`;
@@ -482,6 +488,11 @@ export class StudioEngine {
     let peaks = this.peaksCache.get(`${sessionId}:${recordingId}`);
     if (!peaks) {
       peaks = computePeaks(buf);
+      while (this.peaksCache.size >= MAX_PEAKS_CACHE_ENTRIES) {
+        const oldest = this.peaksCache.keys().next().value;
+        if (oldest === undefined) break;
+        this.peaksCache.delete(oldest);
+      }
       this.peaksCache.set(`${sessionId}:${recordingId}`, peaks);
     }
     return peaks;

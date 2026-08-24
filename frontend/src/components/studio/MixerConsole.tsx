@@ -12,10 +12,13 @@ type MeterSample = { rms: number; peak: number; hold: number };
 
 const IDLE_METER: MeterSample = { rms: 0, peak: 0, hold: 0 };
 
+// Meter scale: fader range is -60..+6 dB (66 dB of travel).
+const METER_DB_FLOOR = -60;
+const METER_DB_RANGE = 66;
+
 function toPercent(linear: number): number {
-  // dB-ish curve so quiet signals are visible on the strip.
   const db = 20 * Math.log10(Math.max(linear, 1e-4));
-  return Math.max(0, Math.min(100, ((db + 60) / 66) * 100));
+  return Math.max(0, Math.min(100, ((db - METER_DB_FLOOR) / METER_DB_RANGE) * 100));
 }
 
 type MixerConsoleProps = {
@@ -61,7 +64,7 @@ export function MixerConsole({ tracks, onUpdateTrack, readMeter }: MixerConsoleP
             <div key={track.id} className={`daw-strip${track.muted ? " is-muted" : ""}`}>
               <div className="daw-strip__meter">
                 <div className="daw-strip__meter-scale" aria-hidden="true">
-                  {[0, 1, 2, 3, 4].map((i) => (
+                  {[0, 1, 2, 3].map((i) => (
                     <i key={i} />
                   ))}
                 </div>
