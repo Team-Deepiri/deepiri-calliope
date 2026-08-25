@@ -481,11 +481,11 @@ export function Studio() {
         if (pianoNotes.length > 0 && synthRef.current) {
           const stepsPerBeat = 4;
           const currentStep = (bar - 1) * 4 * stepsPerBeat + (beat - 1) * stepsPerBeat;
-          for (const note of pianoNotes) {
-            if (Math.floor(note.start) === Math.floor(currentStep)) {
-              synthRef.current.noteOn(note.midi, note.velocity ?? 100, `play-${note.id}`);
-              setTimeout(() => synthRef.current?.noteOff(note.midi, `play-${note.id}`), (note.duration * 60 / bpm / stepsPerBeat) * 1000);
-            }
+          const note = pianoNotes.find((n) => Math.floor(n.start) === Math.floor(currentStep));
+          if (note) {
+            synthRef.current.noteOn(note.midi ?? 60, note.velocity ?? 100, `play-${note.id}`);
+            const durSec = note.duration * 60 / bpm / stepsPerBeat;
+            setTimeout(() => synthRef.current?.noteOff(note.midi ?? 60, `play-${note.id}`), durSec * 1000);
           }
         }
       },
