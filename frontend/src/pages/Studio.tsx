@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Cpu, Download, FolderOpen, GitBranch, Keyboard, Mic, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Cpu, Download, FilePlus2, FolderOpen, GitBranch, Keyboard, Mic, Plus, Redo2, Undo2 } from "lucide-react";
 import {
   alignAamati,
   analyzeBrief,
@@ -76,6 +76,16 @@ type StudioClip = EngineClip & {
 };
 
 const LIVE_CLIP_ID = "clip-live-recording";
+const STORAGE_KEY = "calliope.project.v1";
+
+type ProjectSnapshot = {
+  bpm: number;
+  tracks: MixerTrack[];
+  clips: Omit<StudioClip, "waveformPeaks">[];
+  pluginChain: PluginInstance[];
+  trackPlugins: Record<string, PluginInstance[]>;
+  sections: StudioSection[];
+};
 
 export function Studio() {
   const recorderRef = useRef<AudioRecorderHandle>(null);
@@ -97,6 +107,8 @@ export function Studio() {
   const [metronomeOn, setMetronomeOn] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [trackPlugins, setTrackPlugins] = useState<Record<string, PluginInstance[]>>({});
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const selectedClipRef = useRef<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const liveGrowRef = useRef<number | null>(null);
   const liveStartRef = useRef<{ bar: number; atMs: number } | null>(null);
@@ -144,9 +156,154 @@ export function Studio() {
 
   const onPlayRef = useRef<() => void>(() => {});
   const onRecordRef = useRef<() => void>(() => {});
+  const undoRef = useRef<() => void>(() => {});
+  const redoRef = useRef<() => void>(() => {});
+  const deleteClipRef = useRef<(clipId: string) => void>(() => {});
 
   tracksRef.current = tracks;
   clipsRef.current = clips;
+  selectedClipRef.current = selectedClipId;
+
+  // —— Undo/redo history (snapshots of the arrangement) ——
+  const pastRef = useRef<Array<Pick<ProjectSnapshot, "tracks" | "clips">>>([]);
+  const futureRef = useRef<Array<Pick<ProjectSnapshot, "tracks" | "clips">>>([]);
+  const lastPushRef = useRef<{ tag: string; t: number } | null>(null);
+  const [hist, setHist] = useState({ past: 0, future: 0 });
+  const pushHistory = useCallback((tag: string) => {
+    const now = performance.now();
+    const last = lastPushRef.current;
+    if (last && last.tag === tag && now - last.t < 900) {
+      last.t = now; // coalesce drag streams into one undo step
+      return;
+    }
+    const snap: ProjectSnapshot = {
+      bpm,
+      tracks: tracksRef.current.map((t) => ({ ...t })),
+      clips: clipsRef.current.map((c) => ({ ...c })),
+      pluginChain: pluginChain.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) })),
+      trackPlugins: Object.fromEntries(
+        Object.entries(trackPlugins).map(([k, v]) => [k, v.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) }))]),
+      ),
+      sections: sections.map((sec) => ({ ...sec })),
+    };
+    pastRef.current.push(snap);
+    if (pastRef.current.length > 80) pastRef.current.shift();
+    futureRef.current = [];
+    lastPushRef.current = { tag, t: now };
+    setHist({ past: pastRef.current.length, future: 0 });
+  }, [bpm, pluginChain, trackPlugins, sections]);
+
+  const applySnapshot = useCallback(
+    (snap: { tracks: MixerTrack[]; clips: StudioClip[] }) => {
+      setTracks(snap.tracks.map((t) => ({ ...t })));
+      setClips(snap.clips.map((c) => ({ ...c })));
+    },
+    [],
+  );
+
+  const undo = useCallback(() => {
+    const prev = pastRef.current.pop();
+    if (!prev) return;
+    futureRef.current.push({ tracks: tracksRef.current, clips: clipsRef.current });
+    applySnapshot(prev);
+    lastPushRef.current = null;
+    setHist({ past: pastRef.current.length, future: futureRef.current.length });
+  }, [applySnapshot]);
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.pop();
+    if (!next) return;
+    const snap: ProjectSnapshot = {
+      bpm,
+      tracks: tracksRef.current.map((t) => ({ ...t })),
+      clips: clipsRef.current.map((c) => ({ ...c })),
+      pluginChain: pluginChain.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) })),
+      trackPlugins: Object.fromEntries(
+        Object.entries(trackPlugins).map(([k, v]) => [k, v.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) }))]),
+      ),
+      sections: sections.map((sec) => ({ ...sec })),
+    };
+    pastRef.current.push(snap);
+    applySnapshot(next);
+    lastPushRef.current = null;
+    setHist({ past: pastRef.current.length, future: futureRef.current.length });
+  }, [applySnapshot]);
+
+  // —— Project persistence (localStorage autosave) ——
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const p = JSON.parse(raw) as ProjectSnapshot;
+      if (!Array.isArray(p.clips) || !Array.isArray(p.tracks)) return;
+      setBpm(p.bpm ?? 120);
+      setTracks(p.tracks);
+      setClips(p.clips);
+      setPluginChain(p.pluginChain ?? []);
+      setTrackPlugins(p.trackPlugins ?? {});
+      setSections(p.sections ?? SECTIONS);
+      restoredRef.current = true;
+      setPlayHint("Restored your last project");
+      void (async () => {
+        const engine = ensureEngine();
+        for (const c of p.clips) {
+          try {
+            await engine.loadClip(c);
+            const peaks = engine.getClipPeaks(c.sessionId, c.recordingId);
+            if (peaks) {
+              setClips((prev) => prev.map((x) => (x.id === c.id ? { ...x, waveformPeaks: peaks } : x)));
+            }
+          } catch {
+            /* clip source unavailable — keep placeholder */
+          }
+        }
+      })();
+    } catch {
+      /* corrupt save — start fresh */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (transport.recording) return; // don't persist live-take churn
+    const id = window.setTimeout(() => {
+      try {
+        const snap: ProjectSnapshot = {
+          bpm,
+          tracks,
+          clips: clips.map(({ waveformPeaks: _wp, ...rest }) => rest),
+          pluginChain,
+          trackPlugins,
+          sections,
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(snap));
+        setSavedAt(Date.now());
+      } catch {
+        /* storage full/unavailable */
+      }
+    }, 800);
+    return () => window.clearTimeout(id);
+  }, [bpm, tracks, clips, pluginChain, trackPlugins, sections, transport.recording]);
+
+  const newSession = useCallback(() => {
+    engineRef.current?.stop();
+    setTransport((t) => ({ ...t, playing: false, bar: 1, beat: 0 }));
+    setSelectedClipId(null);
+    localStorage.removeItem(STORAGE_KEY);
+    setTracks(INITIAL_TRACKS);
+    setClips([]);
+    setSections(SECTIONS);
+    setPluginChain([]);
+    setTrackPlugins({});
+    pastRef.current = [];
+    futureRef.current = [];
+    lastPushRef.current = null;
+    setHist({ past: 0, future: 0 });
+    setSavedAt(null);
+    restoredRef.current = true;
+    setPlayHint("New session");
+  }, []);
 
   useEffect(() => {
     engineRef.current = new StudioEngine();
@@ -215,6 +372,21 @@ export function Studio() {
       } else if (e.key === "?") {
         e.preventDefault();
         setShortcutsOpen((o) => !o);
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        if (e.shiftKey) redoRef.current();
+        else undoRef.current();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y")) {
+        e.preventDefault();
+        redoRef.current();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        const sel = selectedClipRef.current;
+        if (sel && sel !== LIVE_CLIP_ID) {
+          e.preventDefault();
+          deleteClipRef.current(sel);
+        }
+      } else if (e.key === "Escape") {
+        setSelectedClipId(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -295,29 +467,45 @@ export function Studio() {
   };
   onPlayRef.current = () => void onPlay();
   onRecordRef.current = onRecord;
+  undoRef.current = undo;
+  redoRef.current = redo;
 
-  const onClipMove = useCallback((clipId: string, newTrackId: string, newStartBar: number) => {
-    setClips((prev) =>
-      prev.map((c) => (c.id === clipId ? { ...c, trackId: newTrackId, startBar: Math.max(0, newStartBar) } : c)),
-    );
-  }, []);
+  const onClipMove = useCallback(
+    (clipId: string, newTrackId: string, newStartBar: number) => {
+      pushHistory("move");
+      setClips((prev) =>
+        prev.map((c) =>
+          c.id === clipId ? { ...c, trackId: newTrackId, startBar: Math.max(0, newStartBar) } : c,
+        ),
+      );
+    },
+    [pushHistory],
+  );
 
   const onClipResize = useCallback(
     (clipId: string, newDurationBars: number) => {
+      pushHistory("resize");
       const barSec = (60 / bpm) * 4;
       setClips((prev) =>
         prev.map((c) => (c.id === clipId ? { ...c, durationSec: Math.max(0.25, newDurationBars) * barSec } : c)),
       );
     },
-    [bpm],
+    [bpm, pushHistory],
   );
 
-  const onDeleteClip = useCallback((clipId: string) => {
-    setClips((prev) => prev.filter((c) => c.id !== clipId));
-  }, []);
+  const onDeleteClip = useCallback(
+    (clipId: string) => {
+      pushHistory("delete");
+      setClips((prev) => prev.filter((c) => c.id !== clipId));
+      setSelectedClipId((cur) => (cur === clipId ? null : cur));
+    },
+    [pushHistory],
+  );
+  deleteClipRef.current = onDeleteClip;
 
   const onDuplicateClip = useCallback(
     (clipId: string) => {
+      pushHistory("duplicate");
       const barSec = (60 / bpm) * 4;
       setClips((prev) => {
         const src = prev.find((c) => c.id === clipId);
@@ -333,11 +521,12 @@ export function Studio() {
         ];
       });
     },
-    [bpm],
+    [bpm, pushHistory],
   );
 
   const onSplitClip = useCallback(
     (clipId: string, atBar: number) => {
+      pushHistory("split");
       const barSec = (60 / bpm) * 4;
       setClips((prev) => {
         const idx = prev.findIndex((c) => c.id === clipId);
@@ -358,12 +547,16 @@ export function Studio() {
         return [...prev.slice(0, idx), left, right, ...prev.slice(idx + 1)];
       });
     },
-    [bpm],
+    [bpm, pushHistory],
   );
 
-  const onRenameClip = useCallback((clipId: string, name: string) => {
-    setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, name } : c)));
-  }, []);
+  const onRenameClip = useCallback(
+    (clipId: string, name: string) => {
+      pushHistory("rename");
+      setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, name } : c)));
+    },
+    [pushHistory],
+  );
 
   const onRenderClipAudio = useCallback(
     async (clipId: string) => {
@@ -397,15 +590,19 @@ export function Studio() {
     [onUpdateTrack],
   );
 
-  const onDeleteTrackWithClips = useCallback((trackId: string) => {
+  const onDeleteTrackWithClips = useCallback(
+    (trackId: string) => {
     if (!window.confirm("Delete this track and every clip on it?")) return;
+    pushHistory("track-delete");
     if (tracksRef.current.length <= 1) {
       window.alert("The mixer needs at least one track.");
       return;
     }
     setTracks((prev) => prev.filter((t) => t.id !== trackId));
     setClips((prev) => prev.filter((c) => c.trackId !== trackId));
-  }, []);
+    },
+    [pushHistory],
+  );
 
   const onToggleMetronome = useCallback(() => {
     setMetronomeOn((prev) => {
@@ -543,6 +740,7 @@ export function Studio() {
 
   const placeClipFromFile = useCallback(
     (file: RecordingFile, sessionId: string, trackId: string, startBar: number, durationHint?: number) => {
+      if (!file.id.startsWith("clip-")) pushHistory("place");
       sessionIdRef.current = sessionId;
       const track = tracksRef.current.find((t) => t.id === trackId);
       const durationSec = file.duration_sec > 0 ? file.duration_sec : durationHint ?? 1;
@@ -566,7 +764,7 @@ export function Studio() {
           }
         });
     },
-    [],
+    [pushHistory],
   );
 
   // Gestures → Studio: place the conducted take on an audio track at bar 1
@@ -621,7 +819,7 @@ export function Studio() {
       if (!target) return;
       for (const file of Array.from(files)) {
         try {
-          await onTrackFileDropRef.current(target.id, file, nextBar);
+          await onTrackFileDropRef.current?.(target.id, file, nextBar);
           nextBar += 8; // stagger until the real duration is known
         } catch (e) {
           console.error("import failed", file.name, e);
@@ -813,6 +1011,35 @@ export function Studio() {
         <button
           type="button"
           className="daw-toolbar__mode"
+          onClick={undo}
+          disabled={hist.past === 0}
+          title="Undo (Ctrl+Z)"
+          aria-label="Undo"
+        >
+          <Undo2 size={14} />
+        </button>
+        <button
+          type="button"
+          className="daw-toolbar__mode"
+          onClick={redo}
+          disabled={hist.future === 0}
+          title="Redo (Ctrl+Shift+Z)"
+          aria-label="Redo"
+        >
+          <Redo2 size={14} />
+        </button>
+        <button type="button" className="daw-toolbar__mode" onClick={newSession} title="New session">
+          <FilePlus2 size={14} />
+          New
+        </button>
+        {savedAt != null && (
+          <span className="daw-toolbar__saved" title="Project autosaved locally">
+            saved {new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        )}
+        <button
+          type="button"
+          className="daw-toolbar__mode"
           onClick={() => setExportOpen(true)}
           disabled={clips.length === 0}
           title="Export mixdown (E)"
@@ -921,7 +1148,10 @@ export function Studio() {
                 onSplitClip={onSplitClip}
                 onRenameClip={onRenameClip}
                 onRenderClip={onRenderClipAudio}
-                onTrackColorChange={(trackId, color) => onUpdateTrack(trackId, { color })}
+                onTrackColorChange={(trackId, color) => {
+                  pushHistory("color");
+                  onUpdateTrack(trackId, { color });
+                }}
               />
             ) : (
               <TimelineView

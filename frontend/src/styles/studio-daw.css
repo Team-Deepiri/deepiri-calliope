@@ -1875,3 +1875,17 @@
     animation: none;
   }
 }
+
+/* —— Toolbar utility: saved indicator + disabled states —— */
+.daw-toolbar__saved {
+  font-family: var(--daw-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  color: var(--daw-dim);
+  padding: 0 6px;
+}
+
+.daw-toolbar__mode:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
