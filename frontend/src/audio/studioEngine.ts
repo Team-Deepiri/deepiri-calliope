@@ -431,35 +431,38 @@ export class StudioEngine {
       this.trackFx.delete(trackId);
     }
     if (!nodes) return;
-    const inst = buildFxChain(this.ctx, this.trackChains.get(trackId) ?? []);
-    inst.output.connect(this.fx.input);
-    this.trackFx.set(trackId, inst);
+    const chain = this.trackChains.get(trackId) ?? [];
     try {
       nodes.pan.disconnect();
     } catch {
       /* ignore */
     }
+    // Empty insert = straight onto the bus; no passthrough nodes.
+    if (chain.length === 0) {
+      nodes.pan.connect(this.fx.input);
+      if (nodes.analyser) nodes.pan.connect(nodes.analyser);
+      return;
+    }
+    const inst = buildFxChain(this.ctx, chain);
+    inst.output.connect(this.fx.input);
+    this.trackFx.set(trackId, inst);
     nodes.pan.connect(inst.input);
     if (nodes.analyser) nodes.pan.connect(nodes.analyser);
   }
 
   private rebuildFx() {
     if (!this.ctx || !this.masterChain) return;
-    this.fx?.dispose();
+    if (this.fx) {
+      try {
+        this.fx.dispose();
+      } catch {
+        /* ignore */
+      }
+    }
     this.fx = buildFxChain(this.ctx, this.chain);
     this.fx.output.connect(this.masterChain.input);
     for (const trackId of Array.from(this.trackNodes.keys())) {
       this.rebuildTrackFx(trackId);
-    }
-    for (const [trackId, nodes] of this.trackNodes) {
-      if (this.trackFx.has(trackId)) continue;
-      try {
-        nodes.pan.disconnect();
-      } catch {
-        /* ignore */
-      }
-      nodes.pan.connect(this.fx.input);
-      if (nodes.analyser) nodes.pan.connect(nodes.analyser);
     }
   }
 
