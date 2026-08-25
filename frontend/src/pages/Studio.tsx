@@ -39,6 +39,7 @@ import {
 import { downloadBlob, encodeWav } from "../audio/exportWav";
 import { SynthEngine, getSharedSynthContext, type SynthConfig, DEFAULT_SYNTH } from "../audio/synthEngine";
 import { PianoRoll, type PianoNote } from "../components/studio/PianoRoll";
+import { InstrumentTab } from "../components/studio/InstrumentTab";
 import { takeGesturesStudioImport } from "../gestures/studioHandoff";
 import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
 import type { AutomationPoint, PluginInstance, RecordingFile } from "../types/audio";
@@ -121,6 +122,23 @@ export function Studio() {
   const synthRef = useRef<SynthEngine | null>(null);
   const [synthConfig, setSynthConfig] = useState<SynthConfig>({ ...DEFAULT_SYNTH });
   const [pianoNotes, setPianoNotes] = useState<PianoNote[]>([]);
+  const [seqPattern, setSeqPattern] = useState(() => {
+    const empty = (len: number) => Array.from({ length: len }, () => ({ active: false, velocity: 100, ratchet: 1 }));
+    const rows = ["Kick","Snare","HH Closed","HH Open","Clap","Tom","Crash","Perc"] as const;
+    const steps: Record<string, { active: boolean; velocity: number; ratchet: number }[]> = {};
+    rows.forEach((r) => { steps[r] = empty(16); });
+    // Default pattern: 4-on-the-floor kick
+    steps["Kick"][0].active = true;
+    steps["Kick"][4].active = true;
+    steps["Kick"][8].active = true;
+    steps["Kick"][12].active = true;
+    // Snare on 2 and 4
+    steps["Snare"][4].active = true;
+    steps["Snare"][12].active = true;
+    // Hi-hats on every 8th
+    for (let i = 0; i < 16; i += 2) steps["HH Closed"][i].active = true;
+    return { id: "default", name: "Beat 1", steps, length: 16 };
+  });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [masterCh, setMasterCh] = useState<EngineMasterChannel>({ ...DEFAULT_MASTER_CHANNEL });
   const [automation, setAutomation] = useState<Record<string, AutomationPoint[]>>({});
@@ -457,13 +475,28 @@ export function Studio() {
       startBar,
       clips: clipsRef.current,
       tracks: tracksRef.current,
-      onBar: (bar, beat) => setTransport((t) => ({ ...t, playing: true, bar, beat })),
+      onBar: (bar, beat) => {
+        setTransport((t) => ({ ...t, playing: true, bar, beat }));
+        // Play piano roll notes at the current beat
+        if (pianoNotes.length > 0 && synthRef.current) {
+          const stepsPerBeat = 4;
+          const currentStep = (bar - 1) * 4 * stepsPerBeat + (beat - 1) * stepsPerBeat;
+          for (const note of pianoNotes) {
+            if (Math.floor(note.start) === Math.floor(currentStep)) {
+              synthRef.current.noteOn(note.midi, note.velocity ?? 100, `play-${note.id}`);
+              setTimeout(() => synthRef.current?.noteOff(note.midi, `play-${note.id}`), (note.duration * 60 / bpm / stepsPerBeat) * 1000);
+            }
+          }
+        }
+      },
     });
     setTransport((t) => ({ ...t, playing: true }));
   };
 
   const onStop = () => {
     ensureEngine().stop();
+    synthRef.current?.disconnect();
+    synthRef.current = null;
     setTransport((t) => ({ ...t, playing: false, bar: 1, beat: 0 }));
   };
 
@@ -1392,47 +1425,17 @@ export function Studio() {
               </div>
             )}
             {inspectorTab === "instrument" && (
-              <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-                <div style={{ padding: "4px 8px", background: "var(--daw-surface)", borderBottom: "1px solid var(--daw-border)", display: "flex", gap: "6px", alignItems: "center" }}>
-                  <select
-                    value={synthConfig.waveform}
-                    onChange={(e) => {
-                      const next = { ...synthConfig, waveform: e.target.value as SynthConfig["waveform"] };
-                      setSynthConfig(next);
-                      synthRef.current?.updateConfig(next);
-                    }}
-                    style={{ fontSize: "0.6rem", background: "var(--daw-bg)", color: "var(--daw-text)", border: "1px solid var(--daw-border)", borderRadius: 3, padding: "2px 4px" }}
-                  >
-                    <option value="sawtooth">Saw</option>
-                    <option value="sine">Sine</option>
-                    <option value="square">Square</option>
-                    <option value="triangle">Triangle</option>
-                  </select>
-                  <span style={{ fontSize: "0.55rem", color: "var(--daw-dim)" }}>
-                    Attack {synthConfig.attack.toFixed(2)}s · Release {synthConfig.release.toFixed(2)}s
-                  </span>
-                </div>
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  <PianoRoll
-                    notes={pianoNotes}
-                    onChange={setPianoNotes}
-                    totalBars={8}
-                    rootMidi={36}
-                    octaveCount={5}
-                    onNotePreview={(midi, on) => {
-                      if (on) {
-                        if (!synthRef.current) {
-                          synthRef.current = new SynthEngine(getSharedSynthContext());
-                          synthRef.current.updateConfig(synthConfig);
-                        }
-                        synthRef.current.noteOn(midi, 100);
-                      } else {
-                        synthRef.current?.noteOff(midi);
-                      }
-                    }}
-                  />
-                </div>
-              </div>
+              <InstrumentTab
+                synthConfig={synthConfig}
+                setSynthConfig={setSynthConfig}
+                synthRef={synthRef}
+                pianoNotes={pianoNotes}
+                setPianoNotes={setPianoNotes}
+                seqPattern={seqPattern}
+                setSeqPattern={setSeqPattern}
+                transport={transport}
+                bpm={bpm}
+              />
             )}
           </div>
         </aside>
