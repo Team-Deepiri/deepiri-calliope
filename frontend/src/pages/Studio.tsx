@@ -511,6 +511,35 @@ export function Studio() {
   onRecordRef.current = onRecord;
   undoRef.current = undo;
   redoRef.current = redo;
+  // MIDI keyboard input — map QWERTY keys to piano roll notes
+  // QWERTY mapping: Q=C4, 2=C#4, W=D4, 3=D#4, E=E4, R=F4, 5=F#4, T=G4, 6=G#4, Y=A4, 7=A#4, U=B4, I=C5
+  const keyToMidi: Record<string, number> = {
+    KeyQ: 60, // C4
+    Key2: 61, // C#4
+    KeyW: 62, // D4
+    Key3: 63, // D#4
+    KeyE: 64, // E4
+    KeyR: 65, // F4
+    Key5: 66, // F#4
+    KeyT: 67, // G4
+    Key6: 68, // G#4
+    KeyY: 69, // A4
+    Key7: 70, // A#4
+    KeyU: 71, // B4
+    KeyI: 72, // C5
+  };
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const midi = keyToMidi[e.code];
+      if (midi && synthRef.current) {
+        synthRef.current.noteOn(midi, 100, `keyboard-${midi}`);
+        setTimeout(() => synthRef.current?.noteOff(midi, `keyboard-${midi}`), 400);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [synthRef.current]);
 
   const onClipMove = useCallback(
     (clipId: string, newTrackId: string, newStartBar: number) => {
