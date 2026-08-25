@@ -109,6 +109,9 @@ export function Studio() {
   const [trackPlugins, setTrackPlugins] = useState<Record<string, PluginInstance[]>>({});
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const selectedClipRef = useRef<string | null>(null);
+  const [recordedSamples, setRecordedSamples] = useState<Float32Array | null>(null);
+  const [recordedSampleRate, setRecordedSampleRate] = useState<number>(48000);
+  const [lastRecordingFile, setLastRecordingFile] = useState<{ id: string; sessionId: string } | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const liveGrowRef = useRef<number | null>(null);
   const liveStartRef = useRef<{ bar: number; atMs: number } | null>(null);
@@ -793,13 +796,29 @@ export function Studio() {
     setPlayHint(`Imported from Gestures: ${incoming.scoreLabel ?? incoming.name}`);
   }, [placeClipFromFile]);
 
-  const onRecordingComplete = (file: RecordingFile, sessionId: string, durationHint?: number) => {
+  const onRecordingComplete = async (file: RecordingFile, sessionId: string, durationHint?: number) => {
     const trackId = selectedTrackId || vocalTrack?.id || "4";
     const startBar = liveStartRef.current?.bar ?? Math.max(0, transport.bar - 1);
     liveStartRef.current = null;
     setClips((prev) => prev.filter((c) => c.id !== LIVE_CLIP_ID));
     placeClipFromFile(file, sessionId, trackId, startBar, durationHint);
+    setLastRecordingFile({ id: file.id, sessionId });
     setPlayHint("");
+    // Decode the uploaded WAV for real-time DSP processing
+    try {
+      const resp = await fetch(`/v1/recordings/sessions/${sessionId}/files/${file.id}/download`);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const audioCtx = new AudioContext();
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        setRecordedSamples(audioBuffer.getChannelData(0));
+        setRecordedSampleRate(audioBuffer.sampleRate);
+        audioCtx.close();
+      }
+    } catch (e) {
+      console.warn("Could not decode recording for DSP preview:", e);
+    }
   };
 
   const onTrackFileDropRef = useRef<
@@ -1246,7 +1265,13 @@ export function Studio() {
                   onInjectChange={setVocalInject}
                 />
                 <div style={{ marginTop: "0.75rem" }}>
-                  <VoiceDspPanel rack={vocalRack} sampleRate={48_000} />
+                  <VoiceDspPanel
+                    rack={vocalRack}
+                    sampleRate={recordedSampleRate}
+                    recordedSamples={recordedSamples ?? undefined}
+                    recordedSampleRate={recordedSampleRate}
+                    lastRecordingFile={lastRecordingFile}
+                  />
                 </div>
               </>
             )}
