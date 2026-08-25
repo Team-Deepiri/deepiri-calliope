@@ -176,12 +176,22 @@ export function Studio() {
       last.t = now; // coalesce drag streams into one undo step
       return;
     }
-    pastRef.current.push({ tracks: tracksRef.current, clips: clipsRef.current });
+    const snap: ProjectSnapshot = {
+      bpm,
+      tracks: tracksRef.current.map((t) => ({ ...t })),
+      clips: clipsRef.current.map((c) => ({ ...c })),
+      pluginChain: pluginChain.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) })),
+      trackPlugins: Object.fromEntries(
+        Object.entries(trackPlugins).map(([k, v]) => [k, v.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) }))]),
+      ),
+      sections: sections.map((sec) => ({ ...sec })),
+    };
+    pastRef.current.push(snap);
     if (pastRef.current.length > 80) pastRef.current.shift();
     futureRef.current = [];
     lastPushRef.current = { tag, t: now };
     setHist({ past: pastRef.current.length, future: 0 });
-  }, []);
+  }, [bpm, pluginChain, trackPlugins, sections]);
 
   const applySnapshot = useCallback(
     (snap: { tracks: MixerTrack[]; clips: StudioClip[] }) => {
@@ -203,7 +213,17 @@ export function Studio() {
   const redo = useCallback(() => {
     const next = futureRef.current.pop();
     if (!next) return;
-    pastRef.current.push({ tracks: tracksRef.current, clips: clipsRef.current });
+    const snap: ProjectSnapshot = {
+      bpm,
+      tracks: tracksRef.current.map((t) => ({ ...t })),
+      clips: clipsRef.current.map((c) => ({ ...c })),
+      pluginChain: pluginChain.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) })),
+      trackPlugins: Object.fromEntries(
+        Object.entries(trackPlugins).map(([k, v]) => [k, v.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) }))]),
+      ),
+      sections: sections.map((sec) => ({ ...sec })),
+    };
+    pastRef.current.push(snap);
     applySnapshot(next);
     lastPushRef.current = null;
     setHist({ past: pastRef.current.length, future: futureRef.current.length });
@@ -246,7 +266,6 @@ export function Studio() {
   }, []);
 
   useEffect(() => {
-    if (!restoredRef.current) return;
     if (transport.recording) return; // don't persist live-take churn
     const id = window.setTimeout(() => {
       try {
@@ -268,7 +287,6 @@ export function Studio() {
   }, [bpm, tracks, clips, pluginChain, trackPlugins, sections, transport.recording]);
 
   const newSession = useCallback(() => {
-    pushHistory("new-session");
     engineRef.current?.stop();
     setTransport((t) => ({ ...t, playing: false, bar: 1, beat: 0 }));
     setSelectedClipId(null);
@@ -278,8 +296,14 @@ export function Studio() {
     setSections(SECTIONS);
     setPluginChain([]);
     setTrackPlugins({});
+    pastRef.current = [];
+    futureRef.current = [];
+    lastPushRef.current = null;
+    setHist({ past: 0, future: 0 });
+    setSavedAt(null);
+    restoredRef.current = true;
     setPlayHint("New session");
-  }, [pushHistory]);
+  }, []);
 
   useEffect(() => {
     engineRef.current = new StudioEngine();
