@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Cpu, Download, FilePlus2, FolderOpen, GitBranch, Keyboard, Mic, Plus, Redo2, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Cpu, Download, FilePlus2, FolderOpen, GitBranch, Keyboard, Mic, Music, Plus, Redo2, Undo2 } from "lucide-react";
 import {
   alignAamati,
   analyzeBrief,
@@ -27,6 +27,7 @@ import { StudioTransport, type TransportState } from "../components/studio/Studi
 import { TimelineView, type TimelineClip } from "../components/studio/TimelineView";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
+import { VocalAIPanel } from "../components/studio/VocalAIPanel";
 import {
   barsFromDuration,
   DEFAULT_MASTER_CHANNEL,
@@ -36,6 +37,8 @@ import {
   type EngineMasterChannel,
 } from "../audio/studioEngine";
 import { downloadBlob, encodeWav } from "../audio/exportWav";
+import { SynthEngine, getSharedSynthContext, type SynthConfig, DEFAULT_SYNTH } from "../audio/synthEngine";
+import { PianoRoll, type PianoNote } from "../components/studio/PianoRoll";
 import { takeGesturesStudioImport } from "../gestures/studioHandoff";
 import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
 import type { AutomationPoint, PluginInstance, RecordingFile } from "../types/audio";
@@ -51,7 +54,7 @@ const PROVIDERS: { value: RouterProvider; label: string }[] = [
 
 const TRACK_COLORS = ["#6b7a99", "#8b6b9e", "#5b8def", "#3dd68c", "#e8b84a", "#f2555a", "#7dd3c0", "#c084fc"];
 
-type InspectorTab = "vocal" | "fx" | "ai" | "pipeline";
+type InspectorTab = "vocal" | "fx" | "ai" | "pipeline" | "instrument";
 
 const INITIAL_TRACKS: MixerTrack[] = [
   { id: "1", name: "Drums", type: "drum", volume: -3, pan: 0, muted: false, solo: false, color: "#6b7a99" },
@@ -115,6 +118,9 @@ export function Studio() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const liveGrowRef = useRef<number | null>(null);
   const liveStartRef = useRef<{ bar: number; atMs: number } | null>(null);
+  const synthRef = useRef<SynthEngine | null>(null);
+  const [synthConfig, setSynthConfig] = useState<SynthConfig>({ ...DEFAULT_SYNTH });
+  const [pianoNotes, setPianoNotes] = useState<PianoNote[]>([]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [masterCh, setMasterCh] = useState<EngineMasterChannel>({ ...DEFAULT_MASTER_CHANNEL });
   const [automation, setAutomation] = useState<Record<string, AutomationPoint[]>>({});
@@ -875,13 +881,13 @@ export function Studio() {
   );
   onTrackFileDropRef.current = onTrackFileDrop;
 
-  const addTrack = () => {
+  const addTrack = (trackType: "audio" | "instrument" = "audio") => {
     const id = String(Date.now());
     const color = TRACK_COLORS[tracks.length % TRACK_COLORS.length];
     const track: MixerTrack = {
       id,
-      name: `Track ${tracks.length + 1}`,
-      type: "audio",
+      name: trackType === "instrument" ? `Instrument ${tracks.length + 1}` : `Track ${tracks.length + 1}`,
+      type: trackType,
       volume: -6,
       pan: 0,
       muted: false,
@@ -1096,10 +1102,16 @@ export function Studio() {
         <aside className="daw-tracks">
           <div className="daw-tracks__head">
             <span>Tracks</span>
-            <button type="button" className="daw-tracks__add" onClick={addTrack} title="Add track">
-              <Plus size={14} />
-              Add
-            </button>
+            <div style={{ display: "flex", gap: 2 }}>
+              <button type="button" className="daw-tracks__add" onClick={() => addTrack("audio")} title="Add audio track">
+                <Plus size={14} />
+                Audio
+              </button>
+              <button type="button" className="daw-tracks__add" onClick={() => addTrack("instrument")} title="Add instrument track" style={{ background: "var(--daw-accent)", color: "#fff" }}>
+                <Music size={14} />
+                MIDI
+              </button>
+            </div>
           </div>
           <div className="daw-tracks__list">
             {tracks.map((track) => (
@@ -1243,6 +1255,7 @@ export function Studio() {
                 ["fx", "FX"],
                 ["ai", "AI"],
                 ["pipeline", "Pipeline"],
+                ["instrument", "Keys"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -1310,30 +1323,28 @@ export function Studio() {
               })()
             )}
             {inspectorTab === "ai" && (
-              <div className="daw-architect">
-                <div>
-                  <label>Brief</label>
-                  <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} />
+              <div className="daw-ai-tab">
+                <VocalAIPanel />
+                <div className="daw-architect" style={{ marginTop: "1rem" }}>
+                  <div className="daw-inspector__scope">LLM Composer</div>
+                  <div>
+                    <label>Brief</label>
+                    <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} />
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <select value={provider} onChange={(e) => setProvider(e.target.value as RouterProvider)} style={{ flex: 1 }}>
+                      {PROVIDERS.map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </select>
+                    <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="Genre" style={{ flex: 1 }} />
+                  </div>
+                  <button type="button" className="daw-architect__run" disabled={planBusy} onClick={() => void onGeneratePlan()}>
+                    {planBusy ? "Generating…" : "Generate plan"}
+                  </button>
+                  {planMeta && <p className="daw-architect__meta">{planMeta}</p>}
+                  {planOut && <LlmOutput text={planOut} compact />}
                 </div>
-                <div>
-                  <label>Provider</label>
-                  <select value={provider} onChange={(e) => setProvider(e.target.value as RouterProvider)}>
-                    {PROVIDERS.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label>Genre</label>
-                  <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="UK garage" />
-                </div>
-                <button type="button" className="daw-architect__run" disabled={planBusy} onClick={() => void onGeneratePlan()}>
-                  {planBusy ? "Generating…" : "Generate plan (Ollama)"}
-                </button>
-                {planMeta && <p className="daw-architect__meta">{planMeta}</p>}
-                {planOut && <LlmOutput text={planOut} compact />}
               </div>
             )}
             {inspectorTab === "pipeline" && (
@@ -1378,6 +1389,49 @@ export function Studio() {
                   </div>
                 )}
                 {pipePlan && <LlmOutput text={pipePlan} compact />}
+              </div>
+            )}
+            {inspectorTab === "instrument" && (
+              <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+                <div style={{ padding: "4px 8px", background: "var(--daw-surface)", borderBottom: "1px solid var(--daw-border)", display: "flex", gap: "6px", alignItems: "center" }}>
+                  <select
+                    value={synthConfig.waveform}
+                    onChange={(e) => {
+                      const next = { ...synthConfig, waveform: e.target.value as SynthConfig["waveform"] };
+                      setSynthConfig(next);
+                      synthRef.current?.updateConfig(next);
+                    }}
+                    style={{ fontSize: "0.6rem", background: "var(--daw-bg)", color: "var(--daw-text)", border: "1px solid var(--daw-border)", borderRadius: 3, padding: "2px 4px" }}
+                  >
+                    <option value="sawtooth">Saw</option>
+                    <option value="sine">Sine</option>
+                    <option value="square">Square</option>
+                    <option value="triangle">Triangle</option>
+                  </select>
+                  <span style={{ fontSize: "0.55rem", color: "var(--daw-dim)" }}>
+                    Attack {synthConfig.attack.toFixed(2)}s · Release {synthConfig.release.toFixed(2)}s
+                  </span>
+                </div>
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <PianoRoll
+                    notes={pianoNotes}
+                    onChange={setPianoNotes}
+                    totalBars={8}
+                    rootMidi={36}
+                    octaveCount={5}
+                    onNotePreview={(midi, on) => {
+                      if (on) {
+                        if (!synthRef.current) {
+                          synthRef.current = new SynthEngine(getSharedSynthContext());
+                          synthRef.current.updateConfig(synthConfig);
+                        }
+                        synthRef.current.noteOn(midi, 100);
+                      } else {
+                        synthRef.current?.noteOff(midi);
+                      }
+                    }}
+                  />
+                </div>
               </div>
             )}
           </div>
