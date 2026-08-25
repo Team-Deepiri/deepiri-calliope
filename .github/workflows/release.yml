@@ -8,6 +8,10 @@ permissions:
   contents: write
   packages: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify-api-image:
     runs-on: ubuntu-latest
