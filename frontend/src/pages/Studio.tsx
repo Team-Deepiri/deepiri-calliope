@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Cpu, GitBranch, Mic, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Cpu, Download, FolderOpen, GitBranch, Keyboard, Mic, Plus } from "lucide-react";
 import {
   alignAamati,
   analyzeBrief,
@@ -13,17 +13,32 @@ import {
 } from "../api/client";
 import { AudioRecorder, type AudioRecorderHandle } from "../components/audio/AudioRecorder";
 import { PluginChainEditor } from "../components/audio/PluginChainEditor";
+import { ArrangementEditor, type ArrangementClip } from "../components/studio/ArrangementEditor";
+import { AutomationLane } from "../components/studio/AutomationLane";
+import { ExportDialog } from "../components/studio/ExportDialog";
+import { KeyboardShortcuts } from "../components/studio/KeyboardShortcuts";
+import { LiveRecScope } from "../components/studio/LiveRecScope";
+import { MasterBus } from "../components/studio/MasterBus";
 import { MixerConsole, type MixerTrack } from "../components/studio/MixerConsole";
+import { SplashIntro } from "../components/studio/SplashIntro";
 import { LlmOutput } from "../components/pipeline/LlmOutput";
 import { AamatiSteerCard } from "../components/studio/AamatiSteerCard";
 import { StudioTransport, type TransportState } from "../components/studio/StudioTransport";
 import { TimelineView, type TimelineClip } from "../components/studio/TimelineView";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
-import { barsFromDuration, StudioEngine, type EngineClip } from "../audio/studioEngine";
+import {
+  barsFromDuration,
+  DEFAULT_MASTER_CHANNEL,
+  StudioEngine,
+  type EngineAutomationPoint,
+  type EngineClip,
+  type EngineMasterChannel,
+} from "../audio/studioEngine";
+import { downloadBlob, encodeWav } from "../audio/exportWav";
 import { takeGesturesStudioImport } from "../gestures/studioHandoff";
 import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
-import type { PluginInstance, RecordingFile } from "../types/audio";
+import type { AutomationPoint, PluginInstance, RecordingFile } from "../types/audio";
 
 const PROVIDERS: { value: RouterProvider; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -51,11 +66,16 @@ const SECTIONS = [
   { name: "Drop", startBar: 16, bars: 16, color: "rgba(61, 214, 140, 0.22)" },
 ];
 
+type StudioSection = (typeof SECTIONS)[number];
+
 type StudioClip = EngineClip & {
   name: string;
   color: string;
   durationSec: number;
+  waveformPeaks?: number[];
 };
+
+const LIVE_CLIP_ID = "clip-live-recording";
 
 export function Studio() {
   const recorderRef = useRef<AudioRecorderHandle>(null);
@@ -70,6 +90,21 @@ export function Studio() {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("vocal");
   const [viewMode, setViewMode] = useState<"arrange" | "edit">("arrange");
   const [pluginChain, setPluginChain] = useState<PluginInstance[]>([]);
+  const [sections, setSections] = useState<StudioSection[]>(SECTIONS);
+  const [zoom, setZoom] = useState(1);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [metronomeOn, setMetronomeOn] = useState(false);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [trackPlugins, setTrackPlugins] = useState<Record<string, PluginInstance[]>>({});
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const liveGrowRef = useRef<number | null>(null);
+  const liveStartRef = useRef<{ bar: number; atMs: number } | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [masterCh, setMasterCh] = useState<EngineMasterChannel>({ ...DEFAULT_MASTER_CHANNEL });
+  const [automation, setAutomation] = useState<Record<string, AutomationPoint[]>>({});
+  const [meter, setMeter] = useState({ peak: 0, rms: 0 });
+  const [booted, setBooted] = useState(false);
 
   const [bpm, setBpm] = useState(132);
   const [transport, setTransport] = useState<TransportState>({
@@ -84,7 +119,7 @@ export function Studio() {
     "Dark UK garage, 132 BPM, swung hats, minor 9 chords, dubby chords on the offbeat",
   );
   const [provider, setProvider] = useState<RouterProvider>("ollama");
-  const [depth, setDepth] = useState<GenerateDepth>("standard");
+  const [depth] = useState<GenerateDepth>("standard");
   const [genre, setGenre] = useState("");
   const [vocalRack, setVocalRack] = useState<VocalRackPayload>({ ...DEFAULT_VOCAL_RACK });
   const [vocalInject, setVocalInject] = useState(true);
@@ -107,6 +142,9 @@ export function Studio() {
 
   const [playHint, setPlayHint] = useState("");
 
+  const onPlayRef = useRef<() => void>(() => {});
+  const onRecordRef = useRef<() => void>(() => {});
+
   tracksRef.current = tracks;
   clipsRef.current = clips;
 
@@ -123,8 +161,65 @@ export function Studio() {
   }, [pluginChain]);
 
   useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    for (const [trackId, chain] of Object.entries(trackPlugins)) {
+      engine.setTrackPluginChain(trackId, chain);
+    }
+  }, [trackPlugins]);
+
+  useEffect(() => {
     engineRef.current?.applyTracks(tracks);
   }, [tracks]);
+
+  useEffect(() => {
+    engineRef.current?.setMasterChannel(masterCh);
+  }, [masterCh]);
+
+  useEffect(() => {
+    const barSec = (60 / bpm) * 4;
+    const converted: Record<string, EngineAutomationPoint[]> = {};
+    for (const [trackId, pts] of Object.entries(automation)) {
+      converted[trackId] = pts.map((p) => ({ bar: p.time_ms / 1000 / barSec, value: p.value }));
+    }
+    engineRef.current?.setTrackAutomation(converted);
+  }, [automation, bpm]);
+
+  // Real master metering off the analyser after the fader (10 fps is plenty for UI).
+  useEffect(() => {
+    if (!transport.playing) return;
+    const id = window.setInterval(() => {
+      setMeter(engineRef.current?.readMasterMeter() ?? { peak: 0, rms: 0 });
+    }, 100);
+    return () => {
+      window.clearInterval(id);
+      setMeter({ peak: 0, rms: 0 });
+    };
+  }, [transport.playing]);
+
+  // Global shortcuts: Space play/stop · R record · E export · ? shortcut map
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (target?.isContentEditable) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        void onPlayRef.current();
+      } else if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        onRecordRef.current();
+      } else if (e.key === "e" || e.key === "E") {
+        e.preventDefault();
+        setExportOpen(true);
+      } else if (e.key === "?") {
+        e.preventDefault();
+        setShortcutsOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const vocalTrack = tracks.find((t) => t.type === "vocal");
 
@@ -137,9 +232,16 @@ export function Studio() {
         startBar: c.startBar,
         durationBars: barsFromDuration(c.durationSec, bpm),
         color: c.color,
+        waveformPeaks: c.waveformPeaks,
       })),
     [clips, bpm],
   );
+
+  const getPlayheadBar = useCallback(() => {
+    const engine = engineRef.current;
+    if (engine?.isPlaying()) return engine.currentBar() + 1;
+    return transport.bar;
+  }, [transport.bar]);
 
   const durationBars = useMemo(() => {
     const fromClips = timelineClips.reduce((m, c) => Math.max(m, c.startBar + c.durationBars), 32);
@@ -188,12 +290,256 @@ export function Studio() {
     const armed = tracks.find((t) => t.id === selectedTrackId) ?? vocalTrack;
     if (armed) setSelectedTrackId(armed.id);
     setVocalDockOpen(true);
+    // Transport rolls with the take; the live clip appears at the playhead.
     recorderRef.current?.toggleRecord();
+  };
+  onPlayRef.current = () => void onPlay();
+  onRecordRef.current = onRecord;
+
+  const onClipMove = useCallback((clipId: string, newTrackId: string, newStartBar: number) => {
+    setClips((prev) =>
+      prev.map((c) => (c.id === clipId ? { ...c, trackId: newTrackId, startBar: Math.max(0, newStartBar) } : c)),
+    );
+  }, []);
+
+  const onClipResize = useCallback(
+    (clipId: string, newDurationBars: number) => {
+      const barSec = (60 / bpm) * 4;
+      setClips((prev) =>
+        prev.map((c) => (c.id === clipId ? { ...c, durationSec: Math.max(0.25, newDurationBars) * barSec } : c)),
+      );
+    },
+    [bpm],
+  );
+
+  const onDeleteClip = useCallback((clipId: string) => {
+    setClips((prev) => prev.filter((c) => c.id !== clipId));
+  }, []);
+
+  const onDuplicateClip = useCallback(
+    (clipId: string) => {
+      const barSec = (60 / bpm) * 4;
+      setClips((prev) => {
+        const src = prev.find((c) => c.id === clipId);
+        if (!src) return prev;
+        const durBars = Math.max(1, Math.round(src.durationSec / barSec));
+        return [
+          ...prev,
+          {
+            ...src,
+            id: `clip-dup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            startBar: src.startBar + durBars,
+          },
+        ];
+      });
+    },
+    [bpm],
+  );
+
+  const onSplitClip = useCallback(
+    (clipId: string, atBar: number) => {
+      const barSec = (60 / bpm) * 4;
+      setClips((prev) => {
+        const idx = prev.findIndex((c) => c.id === clipId);
+        if (idx < 0) return prev;
+        const c = prev[idx];
+        const cutSec = atBar * barSec - c.startBar * barSec;
+        if (cutSec <= 0.05 || cutSec >= c.durationSec - 0.05) return prev;
+        const left = { ...c, durationSec: cutSec };
+        const right: StudioClip = {
+          ...c,
+          id: `clip-split-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          startBar: atBar,
+          durationSec: c.durationSec - cutSec,
+          waveformPeaks: c.waveformPeaks
+            ? c.waveformPeaks.slice(Math.floor((cutSec / c.durationSec) * c.waveformPeaks.length))
+            : undefined,
+        };
+        return [...prev.slice(0, idx), left, right, ...prev.slice(idx + 1)];
+      });
+    },
+    [bpm],
+  );
+
+  const onRenameClip = useCallback((clipId: string, name: string) => {
+    setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, name } : c)));
+  }, []);
+
+  const onRenderClipAudio = useCallback(
+    async (clipId: string) => {
+      const engine = engineRef.current;
+      const clip = clipsRef.current.find((c) => c.id === clipId);
+      if (!engine || !clip || exporting) return;
+      try {
+        setExporting(true);
+        const barSec = (60 / bpm) * 4;
+        const endBar = clip.startBar + Math.max(1, Math.ceil(clip.durationSec / barSec));
+        const buf = await engine.renderMix({
+          bpm,
+          clips: [clip],
+          tracks: tracksRef.current,
+          rangeBars: { startBar: clip.startBar, endBar },
+          tailSec: 0.4,
+        });
+        downloadBlob(encodeWav(buf, 24), `${clip.name.replace(/[^a-z0-9_-]+/gi, "_") || "clip"}.wav`);
+      } catch (e) {
+        console.error("clip render failed", e);
+        window.alert("Failed to render this clip as audio.");
+      } finally {
+        setExporting(false);
+      }
+    },
+    [bpm, exporting],
+  );
+
+  const onRenameTrackName = useCallback(
+    (trackId: string, name: string) => onUpdateTrack(trackId, { name }),
+    [onUpdateTrack],
+  );
+
+  const onDeleteTrackWithClips = useCallback((trackId: string) => {
+    if (!window.confirm("Delete this track and every clip on it?")) return;
+    if (tracksRef.current.length <= 1) {
+      window.alert("The mixer needs at least one track.");
+      return;
+    }
+    setTracks((prev) => prev.filter((t) => t.id !== trackId));
+    setClips((prev) => prev.filter((c) => c.trackId !== trackId));
+  }, []);
+
+  const onToggleMetronome = useCallback(() => {
+    setMetronomeOn((prev) => {
+      const next = !prev;
+      ensureEngine().setMetronome(next);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const selectedAutomation: AutomationPoint[] = automation[selectedTrackId] ?? [];
+  const onUpdateSelectedAutomation = useCallback(
+    (points: AutomationPoint[]) => {
+      setAutomation((prev) => ({ ...prev, [selectedTrackId]: points }));
+    },
+    [selectedTrackId],
+  );
+
+  const handleExport = async (options: {
+    format: string;
+    sampleRate: number;
+    bitDepth: number;
+    stemExport: boolean;
+    normalize: boolean;
+    fileNameTemplate: string;
+  }) => {
+    if (exporting) return;
+    setExporting(true);
+    const sessionName = sessionIdRef.current
+      ? `session-${sessionIdRef.current.slice(0, 8)}`
+      : "calliope-session";
+    try {
+      const engine = ensureEngine();
+      const renderOpts = {
+        bpm,
+        clips: clipsRef.current,
+        tracks: tracksRef.current,
+        tailSec: 2.5,
+        targetSampleRate: options.sampleRate,
+      };
+      let rendered = await engine.renderMix(renderOpts);
+      if (options.normalize && rendered.length > 0) {
+        let peak = 0;
+        for (let c = 0; c < rendered.numberOfChannels; c++) {
+          const data = rendered.getChannelData(c);
+          for (let i = 0; i < data.length; i++) {
+            const a = Math.abs(data[i]);
+            if (a > peak) peak = a;
+          }
+        }
+        if (peak > 0 && Math.abs(peak - 1) > 1e-3) {
+          // Re-render through a normalized master fader.
+          const gainDb = -20 * Math.log10(peak);
+          engine.setMasterChannel({ ...masterCh, volumeDb: masterCh.volumeDb + gainDb });
+          rendered = await engine.renderMix(renderOpts);
+          engine.setMasterChannel(masterCh);
+        }
+      }
+      const depth = options.bitDepth === 16 || options.bitDepth === 24 ? options.bitDepth : 24;
+      const baseName = (options.fileNameTemplate || "{session}_mixdown").replace("{session}", sessionName);
+
+      if (options.stemExport) {
+        // One WAV per track that actually has clips, plus the mixdown.
+        const stemTracks = tracksRef.current.filter((t) =>
+          clipsRef.current.some((c) => c.trackId === t.id),
+        );
+        downloadBlob(encodeWav(rendered, depth), `${baseName}.wav`);
+        for (const t of stemTracks) {
+          const stem = await engine.renderMix({ ...renderOpts, onlyTrackId: t.id });
+          const safeName = t.name.replace(/[^a-z0-9_-]+/gi, "_").toLowerCase();
+          downloadBlob(encodeWav(stem, depth), `${baseName}_${safeName}.wav`);
+        }
+        setPlayHint(`Exported ${baseName}.wav + ${stemTracks.length} stem(s) (${depth}-bit PCM @ ${options.sampleRate} Hz)`);
+      } else {
+        downloadBlob(encodeWav(rendered, depth), `${baseName}.wav`);
+        setPlayHint(`Exported ${baseName}.wav (${depth}-bit PCM @ ${options.sampleRate} Hz)`);
+      }
+      setExportOpen(false);
+    } catch (err) {
+      console.error("Export failed", err);
+      setPlayHint(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const onRecordingStateChange = (recording: boolean) => {
     setTransport((t) => ({ ...t, recording, armed: true }));
+    if (recording) {
+      // Roll the transport with the take and grow a live clip in real time.
+      const engine = ensureEngine();
+      if (!engine.isPlaying()) void onPlay();
+      const trackId = selectedTrackId || vocalTrack?.id || tracks[0]?.id || "1";
+      const track = tracksRef.current.find((t) => t.id === trackId);
+      const bar = Math.max(0, Math.floor(getPlayheadBar()));
+      liveStartRef.current = { bar, atMs: performance.now() };
+      setClips((prev) => [
+        ...prev.filter((c) => c.id !== LIVE_CLIP_ID),
+        {
+          id: LIVE_CLIP_ID,
+          trackId,
+          sessionId: sessionIdRef.current ?? "live",
+          recordingId: "live",
+          name: "● Recording…",
+          startBar: bar,
+          durationSec: 0.2,
+          color: "#ff5252",
+        },
+      ]);
+      if (liveGrowRef.current == null) {
+        liveGrowRef.current = window.setInterval(() => {
+          const s = liveStartRef.current;
+          if (!s) return;
+          const sec = (performance.now() - s.atMs) / 1000;
+          setClips((prev) =>
+            prev.map((c) =>
+              c.id === LIVE_CLIP_ID
+                ? { ...c, durationSec: sec, color: track?.color ?? "#ff5252" }
+                : c,
+            ),
+          );
+        }, 250);
+      }
+    } else if (liveGrowRef.current != null) {
+      window.clearInterval(liveGrowRef.current);
+      liveGrowRef.current = null;
+    }
   };
+
+  useEffect(() => {
+    return () => {
+      if (liveGrowRef.current != null) window.clearInterval(liveGrowRef.current);
+    };
+  }, []);
 
   const placeClipFromFile = useCallback(
     (file: RecordingFile, sessionId: string, trackId: string, startBar: number, durationHint?: number) => {
@@ -211,7 +557,14 @@ export function Studio() {
         color: track?.color ?? "#3dd68c",
       };
       setClips((prev) => [...prev, clip]);
-      void ensureEngine().loadClip(clip);
+      void ensureEngine()
+        .loadClip(clip)
+        .then(() => {
+          const peaks = engineRef.current?.getClipPeaks(clip.sessionId, clip.recordingId);
+          if (peaks) {
+            setClips((prev) => prev.map((c) => (c.id === clip.id ? { ...c, waveformPeaks: peaks } : c)));
+          }
+        });
     },
     [],
   );
@@ -244,13 +597,42 @@ export function Studio() {
 
   const onRecordingComplete = (file: RecordingFile, sessionId: string, durationHint?: number) => {
     const trackId = selectedTrackId || vocalTrack?.id || "4";
-    const startBar = Math.max(0, transport.bar - 1);
+    const startBar = liveStartRef.current?.bar ?? Math.max(0, transport.bar - 1);
+    liveStartRef.current = null;
+    setClips((prev) => prev.filter((c) => c.id !== LIVE_CLIP_ID));
     placeClipFromFile(file, sessionId, trackId, startBar, durationHint);
     setPlayHint("");
   };
 
+  const onTrackFileDropRef = useRef<
+    ((trackId: string, file: File, startBar?: number) => Promise<void>) | null
+  >(null);
+
+  const onImportFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      const barSec = (60 / bpm) * 4;
+      let nextBar = clipsRef.current.reduce(
+        (m, c) => Math.max(m, c.startBar + Math.ceil(c.durationSec / barSec)),
+        0,
+      );
+      const target =
+        tracksRef.current.find((t) => t.type !== "vocal") ?? tracksRef.current[0];
+      if (!target) return;
+      for (const file of Array.from(files)) {
+        try {
+          await onTrackFileDropRef.current(target.id, file, nextBar);
+          nextBar += 8; // stagger until the real duration is known
+        } catch (e) {
+          console.error("import failed", file.name, e);
+        }
+      }
+    },
+    [bpm],
+  );
+
   const onTrackFileDrop = useCallback(
-    async (trackId: string, file: File) => {
+    async (trackId: string, file: File, startBar?: number) => {
       try {
         if (!sessionIdRef.current) {
           const s = await createRecordingSession("Session " + new Date().toLocaleTimeString());
@@ -267,13 +649,14 @@ export function Studio() {
           track_type: track?.type ?? "audio",
           uploaded_at: new Date().toISOString(),
         };
-        placeClipFromFile(newFile, sessionIdRef.current!, trackId, Math.max(0, transport.bar - 1));
+        placeClipFromFile(newFile, sessionIdRef.current!, trackId, startBar ?? Math.max(0, transport.bar - 1));
       } catch (e) {
         console.error("Track drop upload failed:", e);
       }
     },
     [placeClipFromFile, transport.bar],
   );
+  onTrackFileDropRef.current = onTrackFileDrop;
 
   const addTrack = () => {
     const id = String(Date.now());
@@ -376,8 +759,14 @@ export function Studio() {
     }
   }
 
+  const readTrackMeter = useCallback(
+    (trackId: string) => engineRef.current?.readTrackMeter(trackId) ?? { peak: 0, rms: 0 },
+    [],
+  );
+
   return (
     <div className="daw">
+      {!booted && <SplashIntro onDone={() => setBooted(true)} />}
       <header className="daw__toolbar">
         <span className="daw-toolbar__brand">
           <strong>CALLIOPE</strong> Studio
@@ -389,9 +778,56 @@ export function Studio() {
           onPlay={() => void onPlay()}
           onStop={onStop}
           onRecord={onRecord}
+          metronomeOn={metronomeOn}
+          onToggleMetronome={onToggleMetronome}
+          getPlayheadBar={getPlayheadBar}
         />
         {playHint && <span className="daw-toolbar__hint">{playHint}</span>}
+        {transport.recording && (
+          <span className="daw-recscope-wrap">
+            <span className="daw-recscope-badge">REC</span>
+            <LiveRecScope getAnalyser={() => recorderRef.current?.getAnalyser?.() ?? null} />
+          </span>
+        )}
         <span className="daw-toolbar__spacer" />
+        <button
+          type="button"
+          className="daw-toolbar__mode"
+          onClick={() => importInputRef.current?.click()}
+          title="Import audio files"
+        >
+          <FolderOpen size={14} />
+          Import
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.webm"
+          multiple
+          hidden
+          onChange={(e) => {
+            void onImportFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          className="daw-toolbar__mode"
+          onClick={() => setExportOpen(true)}
+          disabled={clips.length === 0}
+          title="Export mixdown (E)"
+        >
+          <Download size={14} />
+          Export
+        </button>
+        <button
+          type="button"
+          className="daw-toolbar__mode"
+          onClick={() => setShortcutsOpen(true)}
+          title="Keyboard shortcuts (?)"
+        >
+          <Keyboard size={14} />
+        </button>
         <div className="daw-toolbar__modes">
           <button
             type="button"
@@ -456,17 +892,70 @@ export function Studio() {
 
         <div className="daw-center">
           <div className="daw-arrange">
-            <TimelineView
-              bpm={bpm}
-              durationBars={durationBars}
-              sections={SECTIONS}
-              tracks={tracks}
-              selectedTrackId={selectedTrackId}
-              playheadBar={transport.bar}
-              clips={timelineClips}
-              onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
-            />
+            {viewMode === "edit" ? (
+              <ArrangementEditor
+                tracks={tracks.map((t) => ({ ...t, height: 72 }))}
+                clips={clips.map(
+                  (c): ArrangementClip => ({
+                    id: c.id,
+                    trackId: c.trackId,
+                    name: c.name,
+                    startBar: c.startBar,
+                    duration: barsFromDuration(c.durationSec, bpm),
+                    color: c.color,
+                    type: "audio",
+                    waveformPeaks: c.waveformPeaks,
+                  }),
+                )}
+                sections={sections}
+                isPlaying={transport.playing}
+                currentPosition={transport.bar - 1}
+                getPlayheadBar={getPlayheadBar}
+                zoom={zoom}
+                onZoomChange={setZoom}
+                onClipMove={onClipMove}
+                onClipResize={onClipResize}
+                onSectionChange={setSections}
+                onDeleteClip={onDeleteClip}
+                onDuplicateClip={onDuplicateClip}
+                onSplitClip={onSplitClip}
+                onRenameClip={onRenameClip}
+                onRenderClip={onRenderClipAudio}
+                onTrackColorChange={(trackId, color) => onUpdateTrack(trackId, { color })}
+              />
+            ) : (
+              <TimelineView
+                bpm={bpm}
+                durationBars={durationBars}
+                sections={sections}
+                tracks={tracks}
+                selectedTrackId={selectedTrackId}
+                playheadBar={transport.bar}
+                isPlaying={transport.playing}
+                getPlayheadBar={getPlayheadBar}
+                clips={timelineClips}
+                onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
+                onSelectClip={setSelectedClipId}
+                selectedClipId={selectedClipId}
+              />
+            )}
           </div>
+
+          {viewMode === "edit" && (
+            <div className="daw-automation">
+              <AutomationLane
+                track={{
+                  name: `${tracks.find((t) => t.id === selectedTrackId)?.name ?? "Track"} · volume`,
+                  points: selectedAutomation,
+                  min_value: 0,
+                  max_value: 1,
+                }}
+                onChange={onUpdateSelectedAutomation}
+                durationMs={durationBars * ((60 / bpm) * 4) * 1000}
+                height={150}
+              />
+            </div>
+          )}
 
           <div className={`daw-vocal-dock${vocalDockOpen ? "" : " is-collapsed"}`}>
             <div
@@ -532,11 +1021,38 @@ export function Studio() {
               </>
             )}
             {inspectorTab === "fx" && (
-              <PluginChainEditor
-                chain={pluginChain}
-                onChange={setPluginChain}
-                onBypass={() => setPluginChain((c) => c.map((p) => ({ ...p, enabled: false })))}
-              />
+              (() => {
+                const selClip = clips.find((c) => c.id === selectedClipId);
+                const scopeTrackId = selClip?.trackId ?? null;
+                const scopeChain = scopeTrackId ? trackPlugins[scopeTrackId] ?? [] : pluginChain;
+                const scopeName = scopeTrackId ? tracks.find((t) => t.id === scopeTrackId)?.name : null;
+                return (
+                  <div>
+                    <p className="daw-inspector__scope">
+                      {scopeName
+                        ? `Insert FX · ${scopeName} — "${selClip?.name.replace(/\.[^.]+$/, "") ?? ""}"`
+                        : "Master FX — click a clip to edit that track's inserts"}
+                    </p>
+                    <PluginChainEditor
+                      chain={scopeChain}
+                      onChange={(next) => {
+                        if (scopeTrackId) setTrackPlugins((prev) => ({ ...prev, [scopeTrackId]: next }));
+                        else setPluginChain(next);
+                      }}
+                      onBypass={() => {
+                        if (scopeTrackId) {
+                          setTrackPlugins((prev) => ({
+                            ...prev,
+                            [scopeTrackId]: (prev[scopeTrackId] ?? []).map((p) => ({ ...p, enabled: false })),
+                          }));
+                        } else {
+                          setPluginChain((c) => c.map((p) => ({ ...p, enabled: false })));
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              })()
             )}
             {inspectorTab === "ai" && (
               <div className="daw-architect">
@@ -614,8 +1130,64 @@ export function Studio() {
       </div>
 
       <div className="daw__mixer-wrap">
-        <MixerConsole tracks={tracks} onUpdateTrack={onUpdateTrack} />
+        <MixerConsole
+          tracks={tracks}
+          onUpdateTrack={onUpdateTrack}
+          onRenameTrack={onRenameTrackName}
+          onDeleteTrack={onDeleteTrackWithClips}
+          readMeter={readTrackMeter}
+        />
+        <MasterBus
+          masterChannel={{
+            volume: masterCh.volumeDb,
+            pan: 0,
+            muted: masterCh.muted,
+            eqLow: { freq: masterCh.eqLow.freq, gain: masterCh.eqLow.gain },
+            eqMid: { freq: masterCh.eqMid.freq, gain: masterCh.eqMid.gain, q: masterCh.eqMid.q },
+            eqHigh: { freq: masterCh.eqHigh.freq, gain: masterCh.eqHigh.gain },
+            compressor: {
+              threshold: masterCh.compressor.threshold,
+              ratio: masterCh.compressor.ratio,
+              makeup: masterCh.compressor.makeup,
+              attack: masterCh.compressor.attack,
+              release: masterCh.compressor.release,
+            },
+            limiter: { threshold: masterCh.limiter.threshold, ceiling: masterCh.limiter.ceiling },
+            outputMode: "stereo",
+            sampleRate: 48000,
+            dithering: false,
+          }}
+          onUpdate={(updates) =>
+            setMasterCh((m) => ({
+              ...m,
+              volumeDb: updates.volume ?? m.volumeDb,
+              muted: updates.muted ?? m.muted,
+              eqLow: updates.eqLow ? { ...m.eqLow, ...updates.eqLow } : m.eqLow,
+              eqMid: updates.eqMid ? { ...m.eqMid, ...updates.eqMid } : m.eqMid,
+              eqHigh: updates.eqHigh ? { ...m.eqHigh, ...updates.eqHigh } : m.eqHigh,
+              compressor: updates.compressor ? { ...m.compressor, ...updates.compressor } : m.compressor,
+              limiter: updates.limiter ? { ...m.limiter, ...updates.limiter } : m.limiter,
+            }))
+          }
+          metering={{
+            integrated: 20 * Math.log10(Math.max(1e-4, meter.rms)),
+            shortTerm: 20 * Math.log10(Math.max(1e-4, meter.rms)),
+            momentary: 20 * Math.log10(Math.max(1e-4, meter.rms)),
+            correlation: 1,
+            peak: 20 * Math.log10(Math.max(1e-4, meter.peak)),
+          }}
+        />
       </div>
+
+      <ExportDialog
+        open={exportOpen}
+        onClose={() => !exporting && setExportOpen(false)}
+        onExport={(options) => void handleExport(options)}
+        sessionName={sessionIdRef.current ? `session-${sessionIdRef.current.slice(0, 8)}` : "calliope-session"}
+        trackCount={tracks.length}
+        duration={durationBars * (60 / bpm) * 4}
+      />
+      <KeyboardShortcuts open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }

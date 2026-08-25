@@ -7,8 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Aamati is public — clone over HTTPS (no SSH deploy key required)
-RUN git clone --depth 1 https://github.com/jrb00013/Aamati.git /opt/Aamati
+# Optional Aamati extras (mood mappings, ONNX stack). The app degrades
+# gracefully without it (aamati_prior checks every path), so the clone must
+# never break the build — the repo may be private or unreachable.
+RUN git clone --depth 1 https://github.com/jrb00013/Aamati.git /opt/Aamati || \
+    echo "WARN: Aamati clone skipped — running on built-in fallbacks"
 
 COPY backend/pyproject.toml backend/poetry.lock /app/
 COPY backend/src /app/src

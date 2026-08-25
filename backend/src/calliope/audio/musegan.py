@@ -7,7 +7,7 @@ per the MuseGAN paper (Dong et al. 2018).
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 
@@ -89,7 +89,6 @@ class BarGenerator:
         self.b_out = np.zeros(notes_per_bar, dtype=np.float32)
 
     def forward(self, temporal_feat: np.ndarray, spatial_feat: np.ndarray) -> np.ndarray:
-        batch = temporal_feat.shape[0]
         h = temporal_feat @ self.w_temporal.T + spatial_feat @ self.w_spatial.T
         h = np.tanh(h)
         logits = h @ self.w_out.T + self.b_out
@@ -188,6 +187,37 @@ class MuseGAN:
         else:
             return self._generate_hybrid(z, chords)
 
+    def _temporal_feature(self, z_bars: np.ndarray, chords: np.ndarray) -> np.ndarray:
+        """Project (latent + chord) per bar to the bar generator's hidden width."""
+        x = np.concatenate([z_bars, chords], axis=-1)
+        h = np.tanh(x @ self.temporal_gen.w_in.T + self.temporal_gen.b_in)
+        return np.tanh(h @ self.temporal_gen.w_h.T + self.temporal_gen.b_h)
+
+    def _spatial_feature(
+        self, z_track: np.ndarray, relation_row: np.ndarray | None = None
+    ) -> np.ndarray:
+        """Project a track latent to the bar generator's hidden width."""
+        feat = np.tanh(z_track @ self.spatial_gen.w_in.T + self.spatial_gen.b_in)
+        if relation_row is not None:
+            reps = int(np.ceil(feat.shape[1] / relation_row.shape[1]))
+            rel = np.tile(relation_row, (1, reps))[:, : feat.shape[1]]
+            feat = feat + rel.astype(np.float32) * 0.5
+        return feat
+
+    def _render_track(
+        self,
+        temp_feat_bars: np.ndarray,
+        spatial_feat: np.ndarray,
+    ) -> np.ndarray:
+        batch = spatial_feat.shape[0]
+        out = np.zeros((batch, self.config.time_steps, 84), dtype=np.float32)
+        for bar in range(self.config.num_bars):
+            bar_pr = self.bar_gen.forward(temp_feat_bars[:, bar, :], spatial_feat)
+            start = bar * self.config.time_steps // self.config.num_bars
+            end = (bar + 1) * self.config.time_steps // self.config.num_bars
+            out[:, start:end, :] = bar_pr[:, np.newaxis, :]
+        return out
+
     def _generate_jamming(self, z: np.ndarray, chords: np.ndarray) -> np.ndarray:
         batch = z.shape[0]
         tracks = np.zeros((batch, self.config.num_tracks, self.config.time_steps, 84), dtype=np.float32)
@@ -196,15 +226,9 @@ class MuseGAN:
             z_t = z + 0.1 * np.random.randn(*z.shape).astype(np.float32)
             z_tiled = np.tile(z_t[:, np.newaxis, :], (1, self.config.num_bars, 1))
             chords_tiled = np.tile(chords, (batch, 1, 1))
-            temporal_in = np.concatenate([z_tiled, chords_tiled], axis=-1)
-
-            for bar in range(self.config.num_bars):
-                temp_feat = temporal_in[:, bar, :]
-                spatial_feat = z_t
-                bar_pr = self.bar_gen.forward(temp_feat, spatial_feat)
-                start = bar * self.config.time_steps // self.config.num_bars
-                end = (bar + 1) * self.config.time_steps // self.config.num_bars
-                tracks[:, t, start:end, :] = bar_pr[:, np.newaxis, :]
+            temp_feat = self._temporal_feature(z_tiled, chords_tiled)
+            spatial_feat = self._spatial_feature(z_t)
+            tracks[:, t] = self._render_track(temp_feat, spatial_feat)
 
         return tracks
 
@@ -213,44 +237,28 @@ class MuseGAN:
         spatial = self.spatial_gen.forward(z)
         tracks = np.zeros((batch, self.config.num_tracks, self.config.time_steps, 84), dtype=np.float32)
 
-        for t in range(self.config.num_tracks):
-            z_tiled = np.tile(z[:, np.newaxis, :], (1, self.config.num_bars, 1))
-            chords_tiled = np.tile(chords, (batch, 1, 1))
-            temporal_in = np.concatenate([z_tiled, chords_tiled], axis=-1)
+        z_tiled = np.tile(z[:, np.newaxis, :], (1, self.config.num_bars, 1))
+        chords_tiled = np.tile(chords, (batch, 1, 1))
+        temp_feat = self._temporal_feature(z_tiled, chords_tiled)
 
-            for bar in range(self.config.num_bars):
-                temp_feat = temporal_in[:, bar, :]
-                weight = np.broadcast_to(spatial[:, t:t + 1, :], (batch, self.config.gen_hidden))
-                spatial_feat = weight @ self.spatial_gen.w_h.T
-                bar_pr = self.bar_gen.forward(temp_feat, spatial_feat)
-                start = bar * self.config.time_steps // self.config.num_bars
-                end = (bar + 1) * self.config.time_steps // self.config.num_bars
-                tracks[:, t, start:end, :] = bar_pr[:, np.newaxis, :]
+        for t in range(self.config.num_tracks):
+            spatial_feat = self._spatial_feature(z, spatial[:, t, :])
+            tracks[:, t] = self._render_track(temp_feat, spatial_feat)
 
         return tracks
 
     def _generate_hybrid(self, z: np.ndarray, chords: np.ndarray) -> np.ndarray:
         batch = z.shape[0]
         spatial = self.spatial_gen.forward(z)
-
-        z_global = np.tile(z[:, np.newaxis, :], (1, self.config.num_tracks, 1))
-        z_local = z_global + 0.3 * np.random.randn(*z_global.shape).astype(np.float32)
-
         tracks = np.zeros((batch, self.config.num_tracks, self.config.time_steps, 84), dtype=np.float32)
 
         for t in range(self.config.num_tracks):
-            z_t = z_local[:, t, :]
+            z_t = z + 0.3 * np.random.randn(*z.shape).astype(np.float32)
             z_tiled = np.tile(z_t[:, np.newaxis, :], (1, self.config.num_bars, 1))
             chords_tiled = np.tile(chords, (batch, 1, 1))
-            temporal_in = np.concatenate([z_tiled, chords_tiled], axis=-1)
-
-            for bar in range(self.config.num_bars):
-                temp_feat = temporal_in[:, bar, :]
-                spatial_feat = z_t + spatial[:, t, :] * 0.5
-                bar_pr = self.bar_gen.forward(temp_feat, spatial_feat)
-                start = bar * self.config.time_steps // self.config.num_bars
-                end = (bar + 1) * self.config.time_steps // self.config.num_bars
-                tracks[:, t, start:end, :] = bar_pr[:, np.newaxis, :]
+            temp_feat = self._temporal_feature(z_tiled, chords_tiled)
+            spatial_feat = self._spatial_feature(z_t, spatial[:, t, :])
+            tracks[:, t] = self._render_track(temp_feat, spatial_feat)
 
         return tracks
 

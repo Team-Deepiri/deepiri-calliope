@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Scissors, Copy, Trash2, Edit3, Type, Palette,
-  Radio, RefreshCw, X,
+  Radio, X,
 } from "lucide-react";
 
 export type ContextMenuAction =
@@ -12,8 +12,7 @@ export type ContextMenuAction =
   | "split"
   | "rename"
   | "color"
-  | "render"
-  | "loop";
+  | "render";
 
 interface ClipContextMenuProps {
   x: number;
@@ -32,7 +31,6 @@ const MENU_ITEMS: Array<{ action: ContextMenuAction; label: string; icon: typeof
   { action: "rename", label: "Rename", icon: Type },
   { action: "color", label: "Change Color", icon: Palette },
   { action: "render", label: "Render as Audio", icon: Radio },
-  { action: "loop", label: "Loop On/Off", icon: RefreshCw },
 ];
 
 export function ClipContextMenu({ x, y, open, onClose, onAction, clipName }: ClipContextMenuProps) {
