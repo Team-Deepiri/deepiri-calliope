@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Cpu, Download, GitBranch, Keyboard, Mic, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Cpu, Download, FolderOpen, GitBranch, Keyboard, Mic, Plus } from "lucide-react";
 import {
   alignAamati,
   analyzeBrief,
@@ -17,6 +17,7 @@ import { ArrangementEditor, type ArrangementClip } from "../components/studio/Ar
 import { AutomationLane } from "../components/studio/AutomationLane";
 import { ExportDialog } from "../components/studio/ExportDialog";
 import { KeyboardShortcuts } from "../components/studio/KeyboardShortcuts";
+import { LiveRecScope } from "../components/studio/LiveRecScope";
 import { MasterBus } from "../components/studio/MasterBus";
 import { MixerConsole, type MixerTrack } from "../components/studio/MixerConsole";
 import { SplashIntro } from "../components/studio/SplashIntro";
@@ -74,6 +75,8 @@ type StudioClip = EngineClip & {
   waveformPeaks?: number[];
 };
 
+const LIVE_CLIP_ID = "clip-live-recording";
+
 export function Studio() {
   const recorderRef = useRef<AudioRecorderHandle>(null);
   const engineRef = useRef<StudioEngine | null>(null);
@@ -92,6 +95,11 @@ export function Studio() {
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [metronomeOn, setMetronomeOn] = useState(false);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [trackPlugins, setTrackPlugins] = useState<Record<string, PluginInstance[]>>({});
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const liveGrowRef = useRef<number | null>(null);
+  const liveStartRef = useRef<{ bar: number; atMs: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [masterCh, setMasterCh] = useState<EngineMasterChannel>({ ...DEFAULT_MASTER_CHANNEL });
   const [automation, setAutomation] = useState<Record<string, AutomationPoint[]>>({});
@@ -151,6 +159,14 @@ export function Studio() {
   useEffect(() => {
     engineRef.current?.setPluginChain(pluginChain);
   }, [pluginChain]);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    for (const [trackId, chain] of Object.entries(trackPlugins)) {
+      engine.setTrackPluginChain(trackId, chain);
+    }
+  }, [trackPlugins]);
 
   useEffect(() => {
     engineRef.current?.applyTracks(tracks);
@@ -274,6 +290,7 @@ export function Studio() {
     const armed = tracks.find((t) => t.id === selectedTrackId) ?? vocalTrack;
     if (armed) setSelectedTrackId(armed.id);
     setVocalDockOpen(true);
+    // Transport rolls with the take; the live clip appears at the playhead.
     recorderRef.current?.toggleRecord();
   };
   onPlayRef.current = () => void onPlay();
@@ -477,7 +494,52 @@ export function Studio() {
 
   const onRecordingStateChange = (recording: boolean) => {
     setTransport((t) => ({ ...t, recording, armed: true }));
+    if (recording) {
+      // Roll the transport with the take and grow a live clip in real time.
+      const engine = ensureEngine();
+      if (!engine.isPlaying()) void onPlay();
+      const trackId = selectedTrackId || vocalTrack?.id || tracks[0]?.id || "1";
+      const track = tracksRef.current.find((t) => t.id === trackId);
+      const bar = Math.max(0, Math.floor(getPlayheadBar()));
+      liveStartRef.current = { bar, atMs: performance.now() };
+      setClips((prev) => [
+        ...prev.filter((c) => c.id !== LIVE_CLIP_ID),
+        {
+          id: LIVE_CLIP_ID,
+          trackId,
+          sessionId: sessionIdRef.current ?? "live",
+          recordingId: "live",
+          name: "● Recording…",
+          startBar: bar,
+          durationSec: 0.2,
+          color: "#ff5252",
+        },
+      ]);
+      if (liveGrowRef.current == null) {
+        liveGrowRef.current = window.setInterval(() => {
+          const s = liveStartRef.current;
+          if (!s) return;
+          const sec = (performance.now() - s.atMs) / 1000;
+          setClips((prev) =>
+            prev.map((c) =>
+              c.id === LIVE_CLIP_ID
+                ? { ...c, durationSec: sec, color: track?.color ?? "#ff5252" }
+                : c,
+            ),
+          );
+        }, 250);
+      }
+    } else if (liveGrowRef.current != null) {
+      window.clearInterval(liveGrowRef.current);
+      liveGrowRef.current = null;
+    }
   };
+
+  useEffect(() => {
+    return () => {
+      if (liveGrowRef.current != null) window.clearInterval(liveGrowRef.current);
+    };
+  }, []);
 
   const placeClipFromFile = useCallback(
     (file: RecordingFile, sessionId: string, trackId: string, startBar: number, durationHint?: number) => {
@@ -535,13 +597,42 @@ export function Studio() {
 
   const onRecordingComplete = (file: RecordingFile, sessionId: string, durationHint?: number) => {
     const trackId = selectedTrackId || vocalTrack?.id || "4";
-    const startBar = Math.max(0, transport.bar - 1);
+    const startBar = liveStartRef.current?.bar ?? Math.max(0, transport.bar - 1);
+    liveStartRef.current = null;
+    setClips((prev) => prev.filter((c) => c.id !== LIVE_CLIP_ID));
     placeClipFromFile(file, sessionId, trackId, startBar, durationHint);
     setPlayHint("");
   };
 
+  const onTrackFileDropRef = useRef<
+    ((trackId: string, file: File, startBar?: number) => Promise<void>) | null
+  >(null);
+
+  const onImportFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      const barSec = (60 / bpm) * 4;
+      let nextBar = clipsRef.current.reduce(
+        (m, c) => Math.max(m, c.startBar + Math.ceil(c.durationSec / barSec)),
+        0,
+      );
+      const target =
+        tracksRef.current.find((t) => t.type !== "vocal") ?? tracksRef.current[0];
+      if (!target) return;
+      for (const file of Array.from(files)) {
+        try {
+          await onTrackFileDropRef.current(target.id, file, nextBar);
+          nextBar += 8; // stagger until the real duration is known
+        } catch (e) {
+          console.error("import failed", file.name, e);
+        }
+      }
+    },
+    [bpm],
+  );
+
   const onTrackFileDrop = useCallback(
-    async (trackId: string, file: File) => {
+    async (trackId: string, file: File, startBar?: number) => {
       try {
         if (!sessionIdRef.current) {
           const s = await createRecordingSession("Session " + new Date().toLocaleTimeString());
@@ -558,13 +649,14 @@ export function Studio() {
           track_type: track?.type ?? "audio",
           uploaded_at: new Date().toISOString(),
         };
-        placeClipFromFile(newFile, sessionIdRef.current!, trackId, Math.max(0, transport.bar - 1));
+        placeClipFromFile(newFile, sessionIdRef.current!, trackId, startBar ?? Math.max(0, transport.bar - 1));
       } catch (e) {
         console.error("Track drop upload failed:", e);
       }
     },
     [placeClipFromFile, transport.bar],
   );
+  onTrackFileDropRef.current = onTrackFileDrop;
 
   const addTrack = () => {
     const id = String(Date.now());
@@ -691,7 +783,33 @@ export function Studio() {
           getPlayheadBar={getPlayheadBar}
         />
         {playHint && <span className="daw-toolbar__hint">{playHint}</span>}
+        {transport.recording && (
+          <span className="daw-recscope-wrap">
+            <span className="daw-recscope-badge">REC</span>
+            <LiveRecScope getAnalyser={() => recorderRef.current?.getAnalyser?.() ?? null} />
+          </span>
+        )}
         <span className="daw-toolbar__spacer" />
+        <button
+          type="button"
+          className="daw-toolbar__mode"
+          onClick={() => importInputRef.current?.click()}
+          title="Import audio files"
+        >
+          <FolderOpen size={14} />
+          Import
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.webm"
+          multiple
+          hidden
+          onChange={(e) => {
+            void onImportFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
         <button
           type="button"
           className="daw-toolbar__mode"
@@ -817,6 +935,8 @@ export function Studio() {
                 getPlayheadBar={getPlayheadBar}
                 clips={timelineClips}
                 onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
+                onSelectClip={setSelectedClipId}
+                selectedClipId={selectedClipId}
               />
             )}
           </div>
@@ -901,11 +1021,38 @@ export function Studio() {
               </>
             )}
             {inspectorTab === "fx" && (
-              <PluginChainEditor
-                chain={pluginChain}
-                onChange={setPluginChain}
-                onBypass={() => setPluginChain((c) => c.map((p) => ({ ...p, enabled: false })))}
-              />
+              (() => {
+                const selClip = clips.find((c) => c.id === selectedClipId);
+                const scopeTrackId = selClip?.trackId ?? null;
+                const scopeChain = scopeTrackId ? trackPlugins[scopeTrackId] ?? [] : pluginChain;
+                const scopeName = scopeTrackId ? tracks.find((t) => t.id === scopeTrackId)?.name : null;
+                return (
+                  <div>
+                    <p className="daw-inspector__scope">
+                      {scopeName
+                        ? `Insert FX · ${scopeName} — "${selClip?.name.replace(/\.[^.]+$/, "") ?? ""}"`
+                        : "Master FX — click a clip to edit that track's inserts"}
+                    </p>
+                    <PluginChainEditor
+                      chain={scopeChain}
+                      onChange={(next) => {
+                        if (scopeTrackId) setTrackPlugins((prev) => ({ ...prev, [scopeTrackId]: next }));
+                        else setPluginChain(next);
+                      }}
+                      onBypass={() => {
+                        if (scopeTrackId) {
+                          setTrackPlugins((prev) => ({
+                            ...prev,
+                            [scopeTrackId]: (prev[scopeTrackId] ?? []).map((p) => ({ ...p, enabled: false })),
+                          }));
+                        } else {
+                          setPluginChain((c) => c.map((p) => ({ ...p, enabled: false })));
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              })()
             )}
             {inspectorTab === "ai" && (
               <div className="daw-architect">

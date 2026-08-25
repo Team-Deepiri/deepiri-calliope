@@ -40,6 +40,7 @@ import type { VocalRackPayload } from "../../types/vocalRack";
 export type AudioRecorderHandle = {
   toggleRecord: () => void;
   isRecording: () => boolean;
+  getAnalyser?: () => AnalyserNode | null;
 };
 
 async function encodeBlobToWav(blob: Blob): Promise<Blob> {
@@ -138,6 +139,7 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
       else void startRecording();
     },
     isRecording: () => isRecordingRef.current,
+    getAnalyser: () => analyserRef.current,
   }));
 
   useEffect(() => {
