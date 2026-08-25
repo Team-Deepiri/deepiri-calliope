@@ -835,6 +835,28 @@ export function Studio() {
     setPlayHint(`Imported from Gestures: ${incoming.scoreLabel ?? incoming.name}`);
   }, [placeClipFromFile]);
 
+  // Instrument clip placement from PianoRoll selection
+  const placeInstrumentClip = useCallback((midiNotes: PianoNote[], trackId: string, startBar: number, durationSec: number) => {
+    if (!trackId) return;
+    pushHistory("place");
+    const track = tracksRef.current.find((t) => t.id === trackId);
+    const clip: StudioClip = {
+      id: `clip-piano-${Date.now()}`,
+      trackId,
+      sessionId: sessionIdRef.current ?? sessionId ?? "",
+      recordingId: "",
+      name: `Piano Clip ${tracks.length + 1}`,
+      startBar,
+      durationSec,
+      color: track?.color ?? "#3dd68c",
+      clipType: "instrument" as const,
+      midiNotes,
+    };
+    setClips((prev) => [...prev, clip]);
+    // Pre-load the clip in the engine so renderMix can find it
+    void ensureEngine().then((e) => e.preload([clip]));
+  }, []);
+
   const onRecordingComplete = async (file: RecordingFile, sessionId: string, durationHint?: number) => {
     const trackId = selectedTrackId || vocalTrack?.id || "4";
     const startBar = liveStartRef.current?.bar ?? Math.max(0, transport.bar - 1);
