@@ -1819,3 +1819,59 @@
   background: rgba(107, 159, 255, 0.14);
   box-shadow: inset 0 0 0 1px rgba(107, 159, 255, 0.4);
 }
+
+/* —— Clip selection —— */
+.daw-timeline__clip.is-selected {
+  outline: 2px solid var(--daw-accent);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 1px rgba(107, 159, 255, 0.35), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+/* —— FX inspector scope label —— */
+.daw-inspector__scope {
+  margin: 0 0 0.5rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(107, 159, 255, 0.08);
+  border: 1px solid rgba(107, 159, 255, 0.18);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--daw-muted);
+}
+
+/* —— Live recording scope —— */
+.daw-recscope-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(255, 82, 82, 0.07);
+  border: 1px solid rgba(255, 82, 82, 0.25);
+}
+
+.daw-recscope-badge {
+  font-family: var(--daw-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #ff5252;
+  animation: daw-rec-blink 1s steps(2) infinite;
+}
+
+@keyframes daw-rec-blink {
+  50% { opacity: 0.25; }
+}
+
+.daw-recscope {
+  display: block;
+  width: 260px;
+  height: 44px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .daw-recscope-badge {
+    animation: none;
+  }
+}

@@ -306,6 +306,8 @@ export class StudioEngine {
   private raf: number | null = null;
   private onBar: ((bar: number, beat: number) => void) | null = null;
   private chain: PluginInstance[] = [];
+  private trackFx = new Map<string, ReturnType<typeof buildFxChain>>();
+  private trackChains = new Map<string, PluginInstance[]>();
   private automation = new Map<string, EngineAutomationPoint[]>();
   private masterCh: EngineMasterChannel = { ...DEFAULT_MASTER_CHANNEL };
   private lastTracks: EngineTrack[] = [];
@@ -406,34 +408,85 @@ export class StudioEngine {
     if (this.ctx && this.masterChain) this.rebuildFx();
   }
 
-  private rebuildFx() {
-    if (!this.ctx || !this.masterChain) return;
-    this.fx?.dispose();
-    this.fx = buildFxChain(this.ctx, this.chain);
-    this.fx.output.connect(this.masterChain.input);
-    for (const nodes of this.trackNodes.values()) {
+  /** Per-track insert chain — applied before the shared bus FX. */
+  setTrackPluginChain(trackId: string, chain: PluginInstance[]) {
+    this.trackChains.set(trackId, [...chain]);
+    if (this.ctx && this.fx) this.rebuildTrackFx(trackId);
+  }
+
+  getTrackPluginChain(trackId: string): PluginInstance[] {
+    return this.trackChains.get(trackId) ?? [];
+  }
+
+  private rebuildTrackFx(trackId: string) {
+    if (!this.ctx || !this.fx) return;
+    const nodes = this.trackNodes.get(trackId);
+    const old = this.trackFx.get(trackId);
+    if (old) {
       try {
-        nodes.pan.disconnect();
+        old.dispose();
       } catch {
         /* ignore */
       }
+      this.trackFx.delete(trackId);
+    }
+    if (!nodes) return;
+    const chain = this.trackChains.get(trackId) ?? [];
+    try {
+      nodes.pan.disconnect();
+    } catch {
+      /* ignore */
+    }
+    // Empty insert = straight onto the bus; no passthrough nodes.
+    if (chain.length === 0) {
       nodes.pan.connect(this.fx.input);
+      if (nodes.analyser) nodes.pan.connect(nodes.analyser);
+      return;
+    }
+    const inst = buildFxChain(this.ctx, chain);
+    inst.output.connect(this.fx.input);
+    this.trackFx.set(trackId, inst);
+    nodes.pan.connect(inst.input);
+    if (nodes.analyser) nodes.pan.connect(nodes.analyser);
+  }
+
+  private rebuildFx() {
+    if (!this.ctx || !this.masterChain) return;
+    if (this.fx) {
+      try {
+        this.fx.dispose();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.fx = buildFxChain(this.ctx, this.chain);
+    this.fx.output.connect(this.masterChain.input);
+    for (const trackId of Array.from(this.trackNodes.keys())) {
+      this.rebuildTrackFx(trackId);
     }
   }
 
   private trackGraph(trackId: string) {
     if (!this.ctx || !this.fx) throw new Error("engine not ready");
     let nodes = this.trackNodes.get(trackId);
+    let fxInput = this.trackFx.get(trackId)?.input ?? null;
     if (!nodes) {
       const gain = this.ctx.createGain();
       const pan = this.ctx.createStereoPanner();
       const analyser = this.ctx.createAnalyser();
       analyser.fftSize = 1024;
       gain.connect(pan);
-      pan.connect(this.fx.input);
+      if (!fxInput) {
+        fxInput = this.fx.input;
+      }
+      pan.connect(fxInput);
       pan.connect(analyser); // meter tap (dead-end node, no output connection)
       nodes = { gain, pan, analyser, buf: new Float32Array(analyser.fftSize) };
       this.trackNodes.set(trackId, nodes);
+      // A chain may have been set before the track existed.
+      if (!this.trackFx.has(trackId) && (this.trackChains.get(trackId)?.length ?? 0) > 0) {
+        this.rebuildTrackFx(trackId);
+      }
     }
     return nodes;
   }
@@ -684,7 +737,10 @@ export class StudioEngine {
       g.gain.value = audible ? dbToGain(t.volume) : 0;
       p.pan.value = Math.max(-1, Math.min(1, t.pan));
       g.connect(p);
-      p.connect(fx.input);
+      // Per-track insert chain, then the shared bus chain.
+      const trackFx = buildFxChain(offline, this.trackChains.get(t.id) ?? []);
+      p.connect(trackFx.input);
+      trackFx.output.connect(fx.input);
       gains.set(t.id, g);
     }
 

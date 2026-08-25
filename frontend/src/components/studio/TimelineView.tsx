@@ -32,6 +32,7 @@ type TimelineViewProps = {
   clips?: TimelineClip[];
   onFileDrop?: (trackId: string, file: File) => void;
   onSelectClip?: (clipId: string) => void;
+  selectedClipId?: string | null;
 };
 
 export function ClipWaveform({ peaks, color }: { peaks?: number[]; color: string }) {
@@ -78,6 +79,7 @@ export function TimelineView({
   clips = [],
   onFileDrop,
   onSelectClip,
+  selectedClipId,
 }: TimelineViewProps) {
   const [dragOverTrack, setDragOverTrack] = useState<string | null>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
@@ -155,7 +157,6 @@ export function TimelineView({
                     <button
                       key={clip.id}
                       type="button"
-                      className="daw-timeline__clip daw-timeline__clip--audio has-wave"
                       style={
                         {
                           left: clip.startBar * BAR_W,
@@ -165,6 +166,7 @@ export function TimelineView({
                       }
                       title={`${clip.name} · ${clip.durationBars.toFixed(2)} bars`}
                       onClick={() => onSelectClip?.(clip.id)}
+                      className={`daw-timeline__clip daw-timeline__clip--audio has-wave${selectedClipId === clip.id ? " is-selected" : ""}`}
                     >
                       <span className="daw-clip-name">{clip.name.replace(/\.[^.]+$/, "")}</span>
                       <ClipWaveform peaks={clip.waveformPeaks} color={clip.color} />
