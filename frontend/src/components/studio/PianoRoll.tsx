@@ -1,124 +1,212 @@
-import React, { useState } from "react";
-import { motion } from "framer-motion";
-import { Music, MousePointer2, Eraser, Plus } from "lucide-react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
+import { MousePointer2, Eraser, Scissors, Music } from "lucide-react";
 
-interface Note {
+export type PianoNote = {
   id: string;
   midi: number;
   start: number;
   duration: number;
+  velocity?: number;
+};
+
+type Props = {
+  notes: PianoNote[];
+  onChange: (notes: PianoNote[]) => void;
+  totalBars?: number;
+  rootMidi?: number;
+  octaveCount?: number;
+  onNotePreview?: (midi: number, on: boolean) => void;
+};
+
+const BLACK_KEYS = new Set([1, 3, 6, 8, 10]);
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+function midiName(midi: number): string {
+  return `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
 }
 
-export function PianoRoll() {
-  const [notes, setNotes] = useState<Note[]>([]);
+export function PianoRoll({
+  notes,
+  onChange,
+  totalBars = 8,
+  rootMidi = 48,
+  octaveCount = 4,
+  onNotePreview,
+}: Props) {
   const [tool, setTool] = useState<"draw" | "erase">("draw");
   const [zoom, setZoom] = useState(1);
+  const [dragStart, setDragStart] = useState<{ row: number; col: number } | null>(null);
+  const [hoveredNote, setHoveredNote] = useState<string | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
-  const rowHeight = 20;
-  const colWidth = 40 * zoom;
-  const totalRows = 24; // 2 octaves
-  const totalCols = 32; // 8 bars (16th notes)
-  const rootMidi = 60; // Middle C
+  const totalRows = octaveCount * 12;
+  const stepsPerBar = 4;
+  const totalCols = totalBars * stepsPerBar;
+  const rowHeight = 18;
+  const colWidth = 36 * zoom;
 
-  const handleCellClick = (row: number, col: number) => {
-    const midi = rootMidi + (totalRows / 2 - row);
-    if (tool === "draw") {
-      const newNote: Note = {
-        id: Math.random().toString(36).substr(2, 9),
-        midi,
-        start: col,
-        duration: 1,
-      };
-      setNotes([...notes, newNote]);
-    } else {
-      setNotes(notes.filter((n) => !(n.midi === midi && n.start === col)));
-    }
-  };
+  const midiFromRow = useCallback(
+    (row: number) => rootMidi + (totalRows - 1 - row),
+    [rootMidi, totalRows],
+  );
+
+  const rowFromMidi = useCallback(
+    (midi: number) => totalRows - 1 - (midi - rootMidi),
+    [rootMidi, totalRows],
+  );
+
+  const handleMouseDown = useCallback(
+    (row: number, col: number) => {
+      const midi = midiFromRow(row);
+      if (tool === "erase") {
+        onChange(notes.filter((n) => !(n.midi === midi && col >= n.start && col < n.start + n.duration)));
+        return;
+      }
+      const existing = notes.find((n) => n.midi === midi && col >= n.start && col < n.start + n.duration);
+      if (existing) {
+        onChange(notes.filter((n) => n.id !== existing.id));
+        return;
+      }
+      setDragStart({ row, col });
+      onNotePreview?.(midi, true);
+    },
+    [tool, notes, onChange, midiFromRow, onNotePreview],
+  );
+
+  const handleMouseUp = useCallback(() => {
+    if (!dragStart) return;
+    const midi = midiFromRow(dragStart.row);
+    const newNote: PianoNote = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      midi,
+      start: dragStart.col,
+      duration: 1,
+      velocity: 100,
+    };
+    onChange([...notes, newNote]);
+    onNotePreview?.(midi, false);
+    setDragStart(null);
+  }, [dragStart, notes, onChange, midiFromRow, onNotePreview]);
+
+  useEffect(() => {
+    const up = () => {
+      if (dragStart) {
+        onNotePreview?.(midiFromRow(dragStart.row), false);
+        setDragStart(null);
+      }
+    };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, [dragStart, midiFromRow, onNotePreview]);
 
   return (
-    <div className="piano-roll bg-gray-950 rounded-2xl border border-gray-800 overflow-hidden shadow-2xl">
-      <div className="piano-roll-toolbar flex items-center justify-between p-4 bg-gray-900/50 border-b border-gray-800">
-        <div className="flex items-center gap-4">
-          <div className="flex bg-gray-800 rounded-lg p-1">
+    <div className="piano-roll">
+      <div className="piano-roll-toolbar">
+        <div className="piano-roll-toolbar__left">
+          <div className="piano-roll-tools">
             <button
+              className={`btn-icon ${tool === "draw" ? "btn-icon--active" : ""}`}
               onClick={() => setTool("draw")}
-              className={`p-2 rounded-md transition-colors ${tool === "draw" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"}`}
+              title="Draw (D)"
             >
-              <MousePointer2 size={16} />
+              <MousePointer2 size={14} />
             </button>
             <button
+              className={`btn-icon ${tool === "erase" ? "btn-icon--active" : ""}`}
               onClick={() => setTool("erase")}
-              className={`p-2 rounded-md transition-colors ${tool === "erase" ? "bg-red-600 text-white" : "text-gray-400 hover:text-white"}`}
+              title="Erase (E)"
             >
-              <Eraser size={16} />
+              <Eraser size={14} />
             </button>
           </div>
-          <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Piano Roll</span>
+          <span className="piano-roll-label">
+            <Music size={12} /> Piano Roll · {notes.length} notes
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-           <input 
-             type="range" 
-             min="0.5" 
-             max="2" 
-             step="0.1" 
-             value={zoom} 
-             onChange={(e) => setZoom(parseFloat(e.target.value))}
-             className="w-24 h-1 bg-gray-800 appearance-none rounded-full"
-           />
+        <div className="piano-roll-toolbar__right">
+          <input
+            type="range"
+            min={0.5}
+            max={2.5}
+            step={0.1}
+            value={zoom}
+            onChange={(e) => setZoom(parseFloat(e.target.value))}
+            className="piano-roll-zoom"
+          />
+          <span className="piano-roll-zoom-label">{zoom.toFixed(1)}×</span>
         </div>
       </div>
 
-      <div className="piano-roll-container flex overflow-auto custom-scrollbar h-[400px]">
-        {/* Keys */}
-        <div className="piano-keys sticky left-0 z-20 bg-gray-900 border-r border-gray-800 w-16">
+      <div className="piano-roll-container" ref={gridRef}>
+        <div className="piano-keys">
           {Array.from({ length: totalRows }).map((_, i) => {
-            const midi = rootMidi + (totalRows / 2 - i);
-            const isBlack = [1, 3, 6, 8, 10].includes(midi % 12);
+            const midi = midiFromRow(i);
+            const isBlack = BLACK_KEYS.has(midi % 12);
+            const isC = midi % 12 === 0;
             return (
               <div
                 key={i}
-                className={`h-[20px] flex items-center justify-end pr-2 text-[10px] font-bold border-b border-gray-800/50 ${isBlack ? "bg-black text-gray-600" : "bg-white text-gray-400"}`}
+                className={`piano-key ${isBlack ? "piano-key--black" : "piano-key--white"} ${isC ? "piano-key--c" : ""}`}
                 style={{ height: rowHeight }}
               >
-                {midi % 12 === 0 ? `C${Math.floor(midi / 12) - 1}` : ""}
+                <span>{isC || midi % 12 === 4 ? midiName(midi) : ""}</span>
               </div>
             );
           })}
         </div>
 
-        {/* Grid */}
-        <div className="piano-grid relative" style={{ width: totalCols * colWidth, height: totalRows * rowHeight }}>
-          {Array.from({ length: totalRows }).map((_, row) => (
-            <div key={row} className="flex border-b border-gray-800/30">
-              {Array.from({ length: totalCols }).map((_, col) => (
+        <div
+          className="piano-grid"
+          style={{ width: totalCols * colWidth, height: totalRows * rowHeight }}
+          onMouseUp={handleMouseUp}
+        >
+          {Array.from({ length: totalRows }).map((_, row) =>
+            Array.from({ length: totalCols }).map((_, col) => {
+              const isBlackRow = BLACK_KEYS.has(midiFromRow(row) % 12);
+              const isBar = col % stepsPerBar === 0;
+              return (
                 <div
-                  key={col}
-                  onClick={() => handleCellClick(row, col)}
-                  className={`border-r border-gray-800/30 hover:bg-white/5 transition-colors cursor-crosshair ${col % 4 === 0 ? "border-r-gray-700" : ""}`}
-                  style={{ width: colWidth, height: rowHeight }}
+                  key={`${row}-${col}`}
+                  className={`piano-cell ${isBlackRow ? "piano-cell--black" : ""} ${isBar ? "piano-cell--bar" : ""}`}
+                  style={{ width: colWidth, height: rowHeight, left: col * colWidth, top: row * rowHeight }}
+                  onMouseDown={() => handleMouseDown(row, col)}
+                  onMouseEnter={() => setHoveredNote(`${row}-${col}`)}
                 />
-              ))}
-            </div>
-          ))}
+              );
+            }),
+          )}
 
-          {/* Notes */}
           {notes.map((note) => {
-            const row = totalRows / 2 - (note.midi - rootMidi);
+            const row = rowFromMidi(note.midi);
+            if (row < 0 || row >= totalRows) return null;
+            const vel = (note.velocity ?? 100) / 127;
             return (
-              <motion.div
+              <div
                 key={note.id}
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="absolute bg-blue-500 rounded-sm border border-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.5)] z-10"
+                className={`piano-note ${hoveredNote === `${row}-${note.start}` ? "piano-note--hover" : ""}`}
                 style={{
-                  top: row * rowHeight,
-                  left: note.start * colWidth,
-                  width: note.duration * colWidth,
+                  top: row * rowHeight + 1,
+                  left: note.start * colWidth + 1,
+                  width: note.duration * colWidth - 2,
                   height: rowHeight - 2,
+                  opacity: 0.5 + vel * 0.5,
                 }}
+                title={`${midiName(note.midi)} · vel ${(vel * 127).toFixed(0)} · ${note.duration} steps`}
               />
             );
           })}
+
+          {dragStart && (
+            <div
+              className="piano-note piano-note--preview"
+              style={{
+                top: dragStart.row * rowHeight + 1,
+                left: dragStart.col * colWidth + 1,
+                width: colWidth - 2,
+                height: rowHeight - 2,
+              }}
+            />
+          )}
         </div>
       </div>
     </div>
