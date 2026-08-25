@@ -17,6 +17,8 @@ export type EngineClip = {
   recordingId: string;
   startBar: number;
   durationSec: number;
+  clipType?: "audio" | "instrument";
+  midiNotes?: PianoNote[];
 };
 
 export type EngineAutomationPoint = {
