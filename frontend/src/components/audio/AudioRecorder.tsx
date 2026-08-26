@@ -142,10 +142,13 @@ export const AudioRecorder = forwardRef<AudioRecorderHandle, AudioRecorderProps>
     getAnalyser: () => analyserRef.current,
   }));
 
+  const onRecordingStateChangeRef = useRef(onRecordingStateChange);
+  onRecordingStateChangeRef.current = onRecordingStateChange;
+
   useEffect(() => {
     isRecordingRef.current = isRecording;
-    onRecordingStateChange?.(isRecording);
-  }, [isRecording, onRecordingStateChange]);
+    onRecordingStateChangeRef.current?.(isRecording);
+  }, [isRecording]);
 
   useEffect(() => {
     loadPlugins();

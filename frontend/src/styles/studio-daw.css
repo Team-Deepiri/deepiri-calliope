@@ -29,6 +29,9 @@
 
 .app-shell--studio .app-shell__main {
   padding-top: var(--nav-h);
+  height: 100vh;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .app-shell--studio .site-container {
@@ -36,6 +39,7 @@
   padding: 0;
   margin: 0;
   width: 100%;
+  height: 100%;
 }
 
 .app-shell--studio .footer-bar {
@@ -57,6 +61,7 @@
   color: var(--daw-text);
   background: var(--daw-bg);
   min-height: calc(100vh - var(--nav-h));
+  height: calc(100vh - var(--nav-h));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -67,10 +72,14 @@
   height: var(--daw-toolbar-h);
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0 0.75rem;
+  gap: 0.35rem;
+  padding: 0 0.5rem;
   background: var(--daw-bg-elevated);
   border-bottom: 1px solid var(--daw-border-subtle);
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
+  scrollbar-width: thin;
 }
 
 .daw__workspace {
@@ -83,8 +92,30 @@
 .daw__mixer-wrap {
   flex-shrink: 0;
   height: var(--daw-mixer-h);
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 0 0.5rem;
+  box-sizing: border-box;
+  overflow: hidden;
   border-top: 1px solid var(--daw-border-subtle);
   background: var(--daw-bg-elevated);
+}
+
+.daw__mixer-wrap > .daw-mixer {
+  flex: 1;
+  min-width: 0;
+}
+
+.daw__mixer-wrap .master-bus {
+  width: 240px;
+  flex-shrink: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: var(--daw-radius);
+  font-size: 0.72rem;
 }
 
 /* —— Transport —— */
@@ -215,13 +246,23 @@
 
 .daw-toolbar__spacer {
   flex: 1;
+  min-width: 0.25rem;
+}
+
+.daw-toolbar__modes,
+.daw__toolbar > .daw-toolbar__mode {
+  flex-shrink: 0;
 }
 
 .daw-toolbar__hint {
-  max-width: 280px;
-  font-size: 0.7rem;
+  max-width: 160px;
+  font-size: 0.68rem;
   color: var(--daw-warn);
   line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
 }
 
 .daw-toolbar__modes {
@@ -234,7 +275,7 @@
 }
 
 .daw-toolbar__mode {
-  padding: 0.35rem 0.65rem;
+  padding: 0.35rem 0.5rem;
   font-size: 0.72rem;
   font-weight: 600;
   border: none;
@@ -1028,6 +1069,248 @@
   margin: 0;
   font-size: 0.7rem;
   color: var(--daw-dim);
+}
+
+/* AI tab — vocal synthesis */
+.daw-ai-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.daw-ai-tab__composer {
+  border-top: 1px solid var(--daw-border-subtle);
+  padding-top: 0.65rem;
+}
+
+.daw-ai-tab__composer summary {
+  cursor: pointer;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--daw-dim);
+  list-style: none;
+  user-select: none;
+}
+
+.daw-ai-tab__composer summary::-webkit-details-marker {
+  display: none;
+}
+
+.daw-ai-tab__composer[open] summary {
+  color: var(--daw-muted);
+  margin-bottom: 0.65rem;
+}
+
+.daw-vocal-ai {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.daw-vocal-ai__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--daw-accent);
+}
+
+.daw-vocal-ai__head strong {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--daw-text);
+}
+
+.daw-vocal-ai__head span {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--daw-dim);
+}
+
+.daw-vocal-ai label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--daw-dim);
+  margin-bottom: 0.25rem;
+}
+
+.daw-vocal-ai textarea,
+.daw-vocal-ai select,
+.daw-vocal-ai input[type="range"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.daw-vocal-ai textarea,
+.daw-vocal-ai select {
+  font-family: inherit;
+  font-size: 0.8rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--daw-radius);
+  border: 1px solid var(--daw-border);
+  background: var(--daw-panel);
+  color: var(--daw-text);
+}
+
+.daw-vocal-ai textarea {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.45;
+}
+
+.daw-vocal-ai__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.daw-vocal-ai__row > div {
+  min-width: 0;
+}
+
+.daw-vocal-ai input[type="range"] {
+  accent-color: var(--daw-record);
+  height: 4px;
+}
+
+.daw-vocal-ai__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.daw-vocal-ai__generate,
+.daw-vocal-ai__secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.65rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: var(--daw-radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.daw-vocal-ai__generate {
+  flex: 1;
+  min-width: 8rem;
+  background: linear-gradient(135deg, #c0394a, #d9467a);
+  color: #fff;
+}
+
+.daw-vocal-ai__generate:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.daw-vocal-ai__secondary {
+  background: var(--daw-panel);
+  border-color: var(--daw-border);
+  color: var(--daw-muted);
+}
+
+.daw-vocal-ai__spin {
+  animation: daw-vocal-ai-spin 1s linear infinite;
+}
+
+@keyframes daw-vocal-ai-spin {
+  to { transform: rotate(360deg); }
+}
+
+.daw-vocal-ai__progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--daw-border-subtle);
+  overflow: hidden;
+}
+
+.daw-vocal-ai__progress-bar span {
+  display: block;
+  height: 100%;
+  background: var(--daw-accent);
+  transition: width 0.25s ease;
+}
+
+.daw-vocal-ai__progress-label {
+  font-size: 0.62rem;
+  color: var(--daw-dim);
+}
+
+.daw-vocal-ai__result {
+  padding: 0.55rem;
+  border-radius: var(--daw-radius);
+  border: 1px solid var(--daw-border-subtle);
+  background: var(--daw-panel);
+}
+
+.daw-vocal-ai__result-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.daw-vocal-ai__result-meta {
+  margin-left: auto;
+  font-family: var(--daw-mono);
+  font-size: 0.62rem;
+  color: var(--daw-dim);
+}
+
+.daw-vocal-ai__wave {
+  height: 48px;
+  border-radius: 4px;
+  background: #0a0b0e;
+  overflow: hidden;
+  margin-bottom: 0.45rem;
+}
+
+.daw-vocal-ai__wave svg {
+  width: 100%;
+  height: 100%;
+}
+
+.daw-vocal-ai__result-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.daw-vocal-ai__result-actions a,
+.daw-vocal-ai__result-actions button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: var(--daw-radius);
+  border: 1px solid var(--daw-border);
+  background: var(--daw-bg-elevated);
+  color: var(--daw-text);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.daw-vocal-ai__error {
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.72rem;
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: var(--daw-radius);
 }
 
 .daw-strip__pan {

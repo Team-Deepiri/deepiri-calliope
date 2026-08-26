@@ -39,7 +39,7 @@ function dbToPercent(db: number, min = -60, max = 6): number {
 }
 
 export function MasterBus({ masterChannel, onUpdate, metering }: MasterBusProps) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const handleFaderPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
