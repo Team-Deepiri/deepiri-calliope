@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import uuid
 from datetime import datetime
@@ -32,6 +33,7 @@ from calliope.schemas import (
 
 router = APIRouter(prefix="/v1/recordings", tags=["recordings"])
 
+# In-memory session index; WAV files on disk are the source of truth (see _hydrate_session_from_disk).
 _recordings: dict[str, dict] = {}
 
 # Matches frontend VOCAL_PRESETS.dry_rap_punch — spoken/rap chain with tight tuning.
@@ -119,12 +121,9 @@ def _hydrate_session_from_disk(session_id: str, settings: Settings) -> dict | No
         try:
             info = get_audio_info(path)
             duration = float(info["duration_sec"])
-        except Exception:
-            try:
-                samples, sr = read_audio_file(path, mono=True)
-                duration = float(len(samples) / max(sr, 1))
-            except Exception:
-                continue
+        except (AudioReadError, OSError, KeyError, TypeError, ValueError):
+            # Avoid reading full PCM during hydration — metadata-only scan.
+            duration = 0.0
 
         files.append(
             {
@@ -416,6 +415,10 @@ async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> Commit
     Autotune + dry-rap vocal chain on a session recording, then register the result
     as a new take the Studio timeline can play and export.
     """
+    return await asyncio.to_thread(_commit_rap_take_sync, session_id, body)
+
+
+def _commit_rap_take_sync(session_id: str, body: CommitRapTakeRequest) -> CommitRapTakeResponse:
     session = _get_session(session_id)
     file_path = _resolve_recording_path(session_id, body.source_recording_id)
     if file_path is None:
@@ -423,7 +426,10 @@ async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> Commit
 
     recording = next((f for f in session["files"] if f["id"] == body.source_recording_id), None)
     settings = get_settings()
-    samples, sr = read_audio_file(file_path, mono=True)
+    try:
+        samples, sr = read_audio_file(file_path, mono=True)
+    except AudioReadError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     style = body.style if body.style in RAP_STYLE_RACK_TWEAKS else "melodic_rap"
     detected_bpm: float | None = None
@@ -435,7 +441,7 @@ async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> Commit
         if bpm_conf > 0.15:
             detected_bpm = round(float(bpm_val), 1)
             bpm_confidence = float(bpm_conf)
-    except Exception:
+    except (ImportError, ValueError, TypeError):
         pass
 
     # Production autotune when available; voice rack still applies pitch correction if this fails.
@@ -445,7 +451,7 @@ async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> Commit
         at_cfg = _rap_style_autotune_config(style)
         at_result = auto_tune(samples, sr, at_cfg)
         samples = at_result.corrected_samples
-    except Exception:
+    except (ImportError, RuntimeError, ValueError, TypeError):
         pass
 
     from calliope.voice.engine import process_voice_unit
@@ -464,14 +470,17 @@ async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> Commit
     filename = f"{new_id}.wav"
     out_path = settings.recordings_path / session_id / filename
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    write_audio_file(out_path, mono, sr, format="wav")
+    try:
+        write_audio_file(out_path, mono, sr, format="wav")
+    except (AudioReadError, OSError) as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     try:
         info = get_audio_info(out_path)
         duration = float(info["duration_sec"])
         sample_rate = int(info.get("sample_rate", sr))
         channels = int(info.get("channels", 1))
-    except Exception:
+    except (AudioReadError, OSError, KeyError, TypeError, ValueError):
         duration = float(len(mono) / max(sr, 1))
         sample_rate = sr
         channels = 1

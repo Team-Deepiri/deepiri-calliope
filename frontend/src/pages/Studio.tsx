@@ -951,7 +951,8 @@ export function Studio() {
         result.duration_sec,
       );
     } else {
-      const trackId = target.trackId ?? vocalTrack?.id ?? "4";
+      const trackId = target.trackId ?? vocalTrack?.id;
+      if (!trackId) throw new Error("No vocal track");
       placeClipFromFile(
         {
           id: result.recording_id,

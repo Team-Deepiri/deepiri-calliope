@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import struct
-import wave
+import asyncio
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from calliope.audio.io import AudioReadError, read_audio_file, write_audio_file
+from calliope.config import get_settings
 from calliope.schemas import VocalRackIn
 from calliope.voice.engine import process_voice_unit, report_to_metrics
 
@@ -43,51 +45,38 @@ class AiVocalSynthesizeOut(BaseModel):
     truncated: bool = False
 
 
-@router.post("/v1/ai-vocal/synthesize", response_model=AiVocalSynthesizeOut)
-async def ai_vocal_synthesize(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
-    """Enhance a recorded vocal through the Calliope voice engine.
+def _resolve_recording_path(session_id: str, recording_id: str) -> Path | None:
+    base = get_settings().recordings_path / session_id
+    for ext in ("wav", "webm", "ogg", "mp3", "flac"):
+        path = base / f"{recording_id}.{ext}"
+        if path.is_file():
+            return path
+    return None
 
-    If ``recording_id`` + ``session_id`` are provided the server attempts to
-    load the audio file from the recordings directory.  Otherwise a demo tone
-    is generated so the endpoint is always callable for testing.
-    """
+
+def _load_recording_samples(session_id: str, recording_id: str) -> tuple[list[float], int] | None:
+    path = _resolve_recording_path(session_id, recording_id)
+    if path is None:
+        return None
+    try:
+        audio, file_sr = read_audio_file(path, mono=True)
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        return audio.tolist(), file_sr
+    except (AudioReadError, OSError):
+        return None
+
+
+def _synthesize_vocal_sync(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
+    """Blocking vocal synthesis — run via asyncio.to_thread from the route handler."""
     samples: list[float] = []
     sr = body.sample_rate
 
-    # Try to load a real recording when identifiers are given.
     if body.recording_id and body.session_id:
-        from calliope.config import get_settings
+        loaded = _load_recording_samples(body.session_id, body.recording_id)
+        if loaded is not None:
+            samples, sr = loaded
 
-        base = get_settings().recordings_path / body.session_id
-        for ext in ("wav", "webm", "ogg", "mp3", "flac"):
-            path = base / f"{body.recording_id}.{ext}"
-            if path.exists():
-                try:
-                    import soundfile as sf
-
-                    audio, file_sr = sf.read(str(path), dtype="float32")
-                    sr = file_sr
-                    if audio.ndim > 1:
-                        audio = audio.mean(axis=1)
-                    samples = audio.tolist()
-                except Exception:
-                    # Fallback: read raw PCM via wave module
-                    try:
-                        with wave.open(str(path), "rb") as wf:
-                            sr = wf.getframerate()
-                            n = wf.getnframes()
-                            raw = wf.readframes(n)
-                            if wf.getsampwidth() == 2:
-                                ints = struct.unpack(f"<{n}", raw[: n * 2])
-                                samples = [x / 32768.0 for x in ints]
-                            elif wf.getsampwidth() == 4:
-                                ints = struct.unpack(f"<{n}", raw[: n * 4])
-                                samples = [x / 2147483648.0 for x in ints]
-                    except Exception:
-                        pass
-                break
-
-    # Apply genre-influenced rack overrides.
     rack_dict = body.rack.model_dump()
     if body.genre_settings:
         if "tuning" in body.genre_settings:
@@ -96,12 +85,9 @@ async def ai_vocal_synthesize(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut
             rack_dict["reverb_amount"] = body.genre_settings["reverb"]
         if "compression" in body.genre_settings:
             rack_dict["compression"] = body.genre_settings["compression"]
-    # Apply the global tuning strength slider.
     rack_dict["pitch_correction"] = body.tuning_strength
 
-    from calliope.schemas import VocalRackIn as _VRI
-
-    rack = _VRI(**{k: v for k, v in rack_dict.items() if k in _VRI.model_fields})
+    rack = VocalRackIn(**{k: v for k, v in rack_dict.items() if k in VocalRackIn.model_fields})
 
     y, rep = process_voice_unit(
         samples,
@@ -120,23 +106,16 @@ async def ai_vocal_synthesize(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut
     left, right = left[:max_len], right[:max_len]
     waveform = ((left + right) / 2).tolist() if left.size == right.size else left.tolist()
 
-    # Persist processed audio so it can be downloaded / previewed.
-    from calliope.config import get_settings as _gs
-
     out_id = f"{body.recording_id or 'demo'}_enhanced"
-    out_path = _gs().recordings_path / "enhanced" / f"{out_id}.wav"
+    out_path = get_settings().recordings_path / "enhanced" / f"{out_id}.wav"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with wave.open(str(out_path), "wb") as wf:
-            wf.setnchannels(2 if body.output_stereo else 1)
-            wf.setsampwidth(2)
-            wf.setframerate(sr)
-            if body.output_stereo and y.ndim == 2:
-                interleave = np.column_stack([left, right]).flatten()
-            else:
-                interleave = left
-            wf.writeframes((np.clip(interleave, -1, 1) * 32767).astype(np.int16).tobytes())
-    except Exception:
+        if body.output_stereo and y.ndim == 2:
+            out_audio = np.column_stack([left, right])
+        else:
+            out_audio = left
+        write_audio_file(out_path, out_audio, sr, format="wav")
+    except (AudioReadError, OSError):
         pass
 
     return AiVocalSynthesizeOut(
@@ -147,3 +126,14 @@ async def ai_vocal_synthesize(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut
         metrics=report_to_metrics(rep),
         truncated=truncated,
     )
+
+
+@router.post("/v1/ai-vocal/synthesize", response_model=AiVocalSynthesizeOut)
+async def ai_vocal_synthesize(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
+    """Enhance a recorded vocal through the Calliope voice engine.
+
+    If ``recording_id`` + ``session_id`` are provided the server attempts to
+    load the audio file from the recordings directory.  Otherwise a demo tone
+    is generated so the endpoint is always callable for testing.
+    """
+    return await asyncio.to_thread(_synthesize_vocal_sync, body)
