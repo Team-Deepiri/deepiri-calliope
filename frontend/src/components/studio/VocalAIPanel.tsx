@@ -1,9 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { motion } from "framer-motion";
-import { Mic2, Sparkles, Send, Square, RotateCcw, Play, BarChart3 } from "lucide-react";
-import { ParametricEQ } from "./ParametricEQ";
-import { ChannelStrip } from "./ChannelStrip";
-import type { MixerChannel } from "../../types/audio";
+import { Mic2, Sparkles, Send, Square, RotateCcw, Play } from "lucide-react";
 
 type ArrangementStyle = "verse-chorus" | "verse-chorus-bridge" | "through-composed" | "strophic" | "freeform";
 type VocalStyle = "lead" | "harmonies" | "ad-libs" | "choir";
@@ -25,8 +21,8 @@ const STYLE_LABELS: Record<ArrangementStyle, string> = {
   "verse-chorus": "Verse-Chorus",
   "verse-chorus-bridge": "Verse-Chorus-Bridge",
   "through-composed": "Through-Composed",
-  "strophic": "Strophic",
-  "freeform": "Freeform",
+  strophic: "Strophic",
+  freeform: "Freeform",
 };
 
 const VOCAL_STYLE_LABELS: Record<VocalStyle, string> = {
@@ -50,22 +46,6 @@ export function VocalAIPanel() {
   const [lyrics, setLyrics] = useState("Floating through the neon sky, AI singing high");
   const [voice, setVoice] = useState("soprano");
   const [tuning, setTuning] = useState(0.8);
-  const [vocalChannel, setVocalChannel] = useState<MixerChannel>({
-    id: "vocal-ai",
-    name: "Vocals (AI)",
-    type: "audio",
-    volume: -4,
-    pan: 0,
-    muted: false,
-    solo: false,
-    color: "#10b981",
-    sends: [{ sendId: "send1", level: 0.2 }],
-    pluginCount: 3,
-    vuLevel: 0.65,
-    eqActive: true,
-    compActive: true,
-    gainReduction: 2.4,
-  });
   const [generating, setGenerating] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [progress, setProgress] = useState<GenerationProgress>({ stage: "", percent: 0 });
@@ -87,11 +67,11 @@ export function VocalAIPanel() {
 
     try {
       setProgress({ stage: "Analyzing prompt", percent: 10 });
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 300));
       if (cancelled) return;
 
       setProgress({ stage: "Generating vocal melody", percent: 25 });
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500));
 
       setProgress({ stage: "Synthesizing neural vocals", percent: 50 });
       const response = await fetch("/v1/ai-vocal/synthesize", {
@@ -129,13 +109,11 @@ export function VocalAIPanel() {
       abortRef.current = null;
       setProgress({ stage: "", percent: 0 });
     }
-  }, [lyrics, voice, tuning, arrangementStyle, vocalStyle, genrePreset]);
+  }, [lyrics, voice, tuning, arrangementStyle, vocalStyle, genrePreset, cancelled]);
 
   const handleCancel = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      setCancelled(true);
-    }
+    abortRef.current?.abort();
+    setCancelled(true);
   }, []);
 
   const handleReset = useCallback(() => {
@@ -144,282 +122,173 @@ export function VocalAIPanel() {
     setCancelled(false);
   }, []);
 
-  const progressBars = [
-    { stage: "Analyzing prompt", percent: 10 },
-    { stage: "Generating vocal melody", percent: 25 },
-    { stage: "Synthesizing neural vocals", percent: 50 },
-    { stage: "Processing vocal chain", percent: 80 },
-    { stage: "Finalizing", percent: 100 },
-  ];
-
   return (
-    <div className="vocal-ai-panel bg-gray-950 p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-8">
-      <div className="flex items-center gap-3 mb-2">
-        <div className="p-3 bg-red-500/10 rounded-2xl">
-          <Mic2 className="w-6 h-6 text-red-500" />
-        </div>
+    <div className="daw-vocal-ai">
+      <div className="daw-vocal-ai__head">
+        <Mic2 size={14} />
         <div>
-          <h2 className="text-2xl font-black text-white tracking-tight">AI Vocal Synthesis</h2>
-          <p className="text-xs text-gray-500 uppercase font-bold tracking-widest">Neural SVS Engine v3.5</p>
+          <strong>AI Vocal Synthesis</strong>
+          <span>Neural SVS</span>
         </div>
       </div>
 
-      <div className="space-y-2">
-        <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Lyrics / Prompt</label>
+      <div>
+        <label>Lyrics / prompt</label>
         <textarea
           value={lyrics}
           onChange={(e) => setLyrics(e.target.value)}
-          className="w-full bg-black/50 border border-gray-800 rounded-2xl p-6 text-gray-200 focus:border-red-500 outline-none transition-colors min-h-[120px]"
-          placeholder="Enter lyrics for the AI to sing..."
+          rows={3}
+          placeholder="Enter lyrics for the AI to sing…"
           disabled={generating}
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-8">
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">AI Voice Model</label>
-            <select
-              value={voice}
-              onChange={(e) => setVoice(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-white font-bold"
-              disabled={generating}
-            >
-              <option value="soprano">Soprano (Aura)</option>
-              <option value="tenor">Tenor (Atlas)</option>
-              <option value="alt">Alt (Nova)</option>
-              <option value="bass">Bass (Titan)</option>
-              <option value="custom">Custom (Upload RVC...)</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Arrangement Style</label>
-            <select
-              value={arrangementStyle}
-              onChange={(e) => setArrangementStyle(e.target.value as ArrangementStyle)}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-white font-bold"
-              disabled={generating}
-            >
-              {Object.entries(STYLE_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
-          </div>
+      <div className="daw-vocal-ai__row">
+        <div>
+          <label>Voice model</label>
+          <select value={voice} onChange={(e) => setVoice(e.target.value)} disabled={generating}>
+            <option value="soprano">Soprano (Aura)</option>
+            <option value="tenor">Tenor (Atlas)</option>
+            <option value="alt">Alt (Nova)</option>
+            <option value="bass">Bass (Titan)</option>
+          </select>
         </div>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Vocal Style</label>
-            <select
-              value={vocalStyle}
-              onChange={(e) => setVocalStyle(e.target.value as VocalStyle)}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-white font-bold"
-              disabled={generating}
-            >
-              {Object.entries(VOCAL_STYLE_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Genre Preset</label>
-            <select
-              value={genrePreset}
-              onChange={(e) => setGenrePreset(e.target.value as GenrePreset)}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-white font-bold"
-              disabled={generating}
-            >
-              {Object.keys(GENRE_PRESETS).map((g) => (
-                <option key={g} value={g}>{g.toUpperCase()}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Neural Tuning Strength</label>
-        <div className="flex items-center gap-4">
-          <input
-            type="range"
-            min="0" max="1" step="0.01"
-            value={tuning}
-            onChange={(e) => setTuning(parseFloat(e.target.value))}
-            className="flex-1 h-1 bg-gray-800 appearance-none rounded-full accent-red-500"
+        <div>
+          <label>Arrangement</label>
+          <select
+            value={arrangementStyle}
+            onChange={(e) => setArrangementStyle(e.target.value as ArrangementStyle)}
             disabled={generating}
-          />
-          <span className="text-red-500 font-mono text-sm">{(tuning * 100).toFixed(0)}%</span>
+          >
+            {Object.entries(STYLE_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      <div className="flex gap-4">
+      <div className="daw-vocal-ai__row">
+        <div>
+          <label>Vocal style</label>
+          <select
+            value={vocalStyle}
+            onChange={(e) => setVocalStyle(e.target.value as VocalStyle)}
+            disabled={generating}
+          >
+            {Object.entries(VOCAL_STYLE_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label>Genre</label>
+          <select
+            value={genrePreset}
+            onChange={(e) => setGenrePreset(e.target.value as GenrePreset)}
+            disabled={generating}
+          >
+            {Object.keys(GENRE_PRESETS).map((g) => (
+              <option key={g} value={g}>
+                {g.toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label>Tuning strength · {(tuning * 100).toFixed(0)}%</label>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={tuning}
+          onChange={(e) => setTuning(parseFloat(e.target.value))}
+          disabled={generating}
+        />
+      </div>
+
+      <div className="daw-vocal-ai__actions">
         <button
-          onClick={handleGenerate}
+          type="button"
+          className="daw-vocal-ai__generate"
+          onClick={() => void handleGenerate()}
           disabled={generating || !lyrics.trim()}
-          className="flex-1 bg-gradient-to-r from-red-600 to-pink-600 text-white font-black py-5 rounded-2xl shadow-xl hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {generating ? (
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-            >
-              <Sparkles size={20} />
-            </motion.div>
-          ) : <Send size={20} />}
-          {generating ? "SYNTHESIZING NEURAL VOCALS..." : "GENERATE AI VOCAL TRACK"}
+          {generating ? <Sparkles size={14} className="daw-vocal-ai__spin" /> : <Send size={14} />}
+          {generating ? "Synthesizing…" : "Generate vocal"}
         </button>
         {generating && (
-          <button
-            onClick={handleCancel}
-            className="px-6 bg-red-900/30 border border-red-800 text-red-400 font-black py-5 rounded-2xl hover:bg-red-900/50 transition-all flex items-center gap-2"
-          >
-            <Square size={20} />
-            CANCEL
+          <button type="button" className="daw-vocal-ai__secondary" onClick={handleCancel}>
+            <Square size={14} />
+            Cancel
           </button>
         )}
         {result && (
-          <button
-            onClick={handleReset}
-            className="px-6 bg-gray-800 border border-gray-700 text-gray-300 font-black py-5 rounded-2xl hover:bg-gray-700 transition-all flex items-center gap-2"
-          >
-            <RotateCcw size={20} />
-            RESET
+          <button type="button" className="daw-vocal-ai__secondary" onClick={handleReset}>
+            <RotateCcw size={14} />
+            Reset
           </button>
         )}
       </div>
 
       {generating && (
-        <div className="space-y-3">
-          {progressBars.map((p) => (
-            <div key={p.stage} className="flex items-center gap-3">
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  progress.percent >= p.percent
-                    ? "bg-green-500"
-                    : progress.percent >= p.percent - 25
-                    ? "bg-yellow-500 animate-pulse"
-                    : "bg-gray-700"
-                }`}
-              />
-              <span className={`text-xs font-bold uppercase ${
-                progress.percent >= p.percent ? "text-green-400" : "text-gray-500"
-              }`}>
-                {p.stage}
-              </span>
-              {progress.percent >= p.percent && progress.percent < p.percent + 25 && (
-                <motion.div
-                  animate={{ opacity: [1, 0.3] }}
-                  transition={{ repeat: Infinity, duration: 0.8 }}
-                  className="flex gap-1"
-                >
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="w-1 h-1 rounded-full bg-green-500" />
-                  ))}
-                </motion.div>
-              )}
-            </div>
-          ))}
-          <div className="w-full bg-gray-800 rounded-full h-2 mt-2">
-            <motion.div
-              className="bg-gradient-to-r from-red-500 to-pink-500 h-2 rounded-full"
-              initial={{ width: 0 }}
-              animate={{ width: `${progress.percent}%` }}
-              transition={{ duration: 0.3 }}
-            />
+        <div className="daw-vocal-ai__progress">
+          <div className="daw-vocal-ai__progress-bar">
+            <span style={{ width: `${progress.percent}%` }} />
           </div>
+          <span className="daw-vocal-ai__progress-label">{progress.stage}</span>
         </div>
       )}
 
       {result && (
-        <div className="bg-gray-900/50 rounded-2xl border border-gray-800 p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Play className="w-4 h-4 text-green-500" />
-              <span className="text-sm font-bold text-white">Generated Vocal</span>
-            </div>
-            <span className="text-[10px] font-bold text-gray-500 uppercase">
-              {(result.duration_sec || 0).toFixed(1)}s · {result.sample_rate || 48000}Hz
+        <div className="daw-vocal-ai__result">
+          <div className="daw-vocal-ai__result-head">
+            <Play size={12} />
+            <span>Generated vocal</span>
+            <span className="daw-vocal-ai__result-meta">
+              {(result.duration_sec || 0).toFixed(1)}s
             </span>
           </div>
-          <div className="h-20 bg-black/50 rounded-xl overflow-hidden flex items-center">
+          <div className="daw-vocal-ai__wave">
             {result.waveform && result.waveform.length > 0 ? (
-              <svg viewBox={`0 0 ${result.waveform.length} 80`} className="w-full h-full" preserveAspectRatio="none">
+              <svg viewBox={`0 0 ${Math.min(result.waveform.length, 2000)} 80`} preserveAspectRatio="none">
                 <path
                   d={result.waveform
                     .slice(0, 2000)
                     .map((v: number, i: number) => `${i === 0 ? "M" : "L"} ${i} ${40 - v * 38}`)
                     .join(" ")}
                   fill="none"
-                  stroke="url(#waveform-gradient)"
+                  stroke="var(--daw-accent)"
                   strokeWidth="1.5"
                 />
-                <defs>
-                  <linearGradient id="waveform-gradient" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#ef4444" />
-                    <stop offset="100%" stopColor="#ec4899" />
-                  </linearGradient>
-                </defs>
               </svg>
-            ) : (
-              <div className="w-full text-center">
-                <BarChart3 className="inline w-6 h-6 text-gray-600" />
-              </div>
-            )}
+            ) : null}
           </div>
-          <div className="flex gap-2">
-            <a
-              href={result.output_file}
-              download
-              className="flex-1 bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl text-sm text-center transition-all"
-            >
-              DOWNLOAD WAV
+          <div className="daw-vocal-ai__result-actions">
+            <a href={result.output_file} download>
+              Download
             </a>
             <button
+              type="button"
               onClick={() => {
                 const audio = new Audio(result.output_file);
-                audio.play();
+                void audio.play();
               }}
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl text-sm transition-all flex items-center justify-center gap-2"
             >
-              <Play size={16} />
-              PREVIEW
+              <Play size={12} />
+              Preview
             </button>
           </div>
         </div>
       )}
 
-      {error && (
-        <div className="bg-red-900/20 border border-red-800 rounded-2xl p-4">
-          <p className="text-red-400 text-sm font-bold">{error}</p>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ParametricEQ onPresetChange={(preset) => console.log("Vocal EQ preset:", preset)} />
-        <div className="overflow-x-auto">
-          <ChannelStrip
-            channel={vocalChannel}
-            onUpdate={(updates) => setVocalChannel((prev) => ({ ...prev, ...updates }))}
-            busses={[{ id: "bus1", name: "Vocal Bus" }]}
-            vcaGroups={[]}
-            auxSends={[{ id: "send1", name: "Reverb Send" }]}
-          />
-        </div>
-      </div>
-
-      <div className="bg-gray-900/30 p-4 rounded-2xl border border-gray-800/50 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${generating ? "bg-yellow-500 animate-pulse" : "bg-green-500 animate-pulse"}`} />
-          <span className="text-[10px] font-bold text-gray-500 uppercase">
-            {generating ? "Processing" : "Neural Vocoder Active"}
-          </span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-[10px] font-bold text-gray-600 uppercase">
-            Genre: {genrePreset.toUpperCase()}
-          </span>
-          <span className="text-[10px] font-bold text-gray-600 uppercase">Latency: 142ms</span>
-        </div>
-      </div>
+      {error && <p className="daw-vocal-ai__error">{error}</p>}
     </div>
   );
 }

@@ -186,10 +186,14 @@ export function Studio() {
   const undoRef = useRef<() => void>(() => {});
   const redoRef = useRef<() => void>(() => {});
   const deleteClipRef = useRef<(clipId: string) => void>(() => {});
+  const selectedTrackIdRef = useRef(selectedTrackId);
+  const transportRef = useRef(transport);
 
   tracksRef.current = tracks;
   clipsRef.current = clips;
   selectedClipRef.current = selectedClipId;
+  selectedTrackIdRef.current = selectedTrackId;
+  transportRef.current = transport;
 
   // —— Undo/redo history (snapshots of the arrangement) ——
   const pastRef = useRef<Array<Pick<ProjectSnapshot, "tracks" | "clips">>>([]);
@@ -760,15 +764,24 @@ export function Studio() {
     }
   };
 
-  const onRecordingStateChange = (recording: boolean) => {
-    setTransport((t) => ({ ...t, recording, armed: true }));
+  const onRecordingStateChange = useCallback((recording: boolean) => {
+    setTransport((t) =>
+      t.recording === recording && t.armed ? t : { ...t, recording, armed: true },
+    );
     if (recording) {
       // Roll the transport with the take and grow a live clip in real time.
       const engine = ensureEngine();
-      if (!engine.isPlaying()) void onPlay();
-      const trackId = selectedTrackId || vocalTrack?.id || tracks[0]?.id || "1";
+      if (!engine.isPlaying()) void onPlayRef.current();
+      const trackId =
+        selectedTrackIdRef.current ||
+        tracksRef.current.find((t) => t.type === "vocal")?.id ||
+        tracksRef.current[0]?.id ||
+        "1";
       const track = tracksRef.current.find((t) => t.id === trackId);
-      const bar = Math.max(0, Math.floor(getPlayheadBar()));
+      const engineBar = engine.isPlaying()
+        ? engine.currentBar() + 1
+        : transportRef.current.bar;
+      const bar = Math.max(0, Math.floor(engineBar));
       liveStartRef.current = { bar, atMs: performance.now() };
       setClips((prev) => [
         ...prev.filter((c) => c.id !== LIVE_CLIP_ID),
@@ -801,7 +814,7 @@ export function Studio() {
       window.clearInterval(liveGrowRef.current);
       liveGrowRef.current = null;
     }
-  };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1409,26 +1422,28 @@ export function Studio() {
             {inspectorTab === "ai" && (
               <div className="daw-ai-tab">
                 <VocalAIPanel />
-                <div className="daw-architect" style={{ marginTop: "1rem" }}>
-                  <div className="daw-inspector__scope">LLM Composer</div>
-                  <div>
-                    <label>Brief</label>
-                    <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} />
+                <details className="daw-ai-tab__composer">
+                  <summary>LLM Composer</summary>
+                  <div className="daw-architect">
+                    <div>
+                      <label>Brief</label>
+                      <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} />
+                    </div>
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <select value={provider} onChange={(e) => setProvider(e.target.value as RouterProvider)} style={{ flex: 1 }}>
+                        {PROVIDERS.map((p) => (
+                          <option key={p.value} value={p.value}>{p.label}</option>
+                        ))}
+                      </select>
+                      <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="Genre" style={{ flex: 1 }} />
+                    </div>
+                    <button type="button" className="daw-architect__run" disabled={planBusy} onClick={() => void onGeneratePlan()}>
+                      {planBusy ? "Generating…" : "Generate plan"}
+                    </button>
+                    {planMeta && <p className="daw-architect__meta">{planMeta}</p>}
+                    {planOut && <LlmOutput text={planOut} compact />}
                   </div>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <select value={provider} onChange={(e) => setProvider(e.target.value as RouterProvider)} style={{ flex: 1 }}>
-                      {PROVIDERS.map((p) => (
-                        <option key={p.value} value={p.value}>{p.label}</option>
-                      ))}
-                    </select>
-                    <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="Genre" style={{ flex: 1 }} />
-                  </div>
-                  <button type="button" className="daw-architect__run" disabled={planBusy} onClick={() => void onGeneratePlan()}>
-                    {planBusy ? "Generating…" : "Generate plan"}
-                  </button>
-                  {planMeta && <p className="daw-architect__meta">{planMeta}</p>}
-                  {planOut && <LlmOutput text={planOut} compact />}
-                </div>
+                </details>
               </div>
             )}
             {inspectorTab === "pipeline" && (
