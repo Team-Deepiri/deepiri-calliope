@@ -1313,6 +1313,98 @@
   border-radius: var(--daw-radius);
 }
 
+/* Rap song product path (Joe: record → autotune → beat → export) */
+.daw-rap-path {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.65rem;
+  margin-bottom: 0.75rem;
+  border-radius: var(--daw-radius);
+  border: 1px solid rgba(107, 159, 255, 0.22);
+  background: rgba(107, 159, 255, 0.06);
+}
+
+.daw-rap-path__head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--daw-accent);
+}
+
+.daw-rap-path__head strong {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--daw-text);
+}
+
+.daw-rap-path__head span {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--daw-dim);
+}
+
+.daw-rap-path__target {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--daw-muted);
+  line-height: 1.35;
+}
+
+.daw-rap-path__target em {
+  font-style: normal;
+  color: var(--daw-text);
+}
+
+.daw-rap-path__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.daw-rap-path__primary,
+.daw-rap-path__secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.48rem 0.6rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: var(--daw-radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.daw-rap-path__primary {
+  background: linear-gradient(135deg, #3d7aef, #6b9fff);
+  color: #fff;
+}
+
+.daw-rap-path__primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.daw-rap-path__secondary {
+  background: var(--daw-panel);
+  border-color: var(--daw-border);
+  color: var(--daw-muted);
+}
+
+.daw-rap-path__secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.daw-rap-path__status {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--daw-dim);
+}
+
 .daw-strip__pan {
   display: flex;
   flex-direction: column;

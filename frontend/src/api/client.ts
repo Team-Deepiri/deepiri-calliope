@@ -274,6 +274,48 @@ export async function processRecording(
   return r.json();
 }
 
+/** Autotune + dry-rap vocal chain; registers a new take in the session for timeline playback. */
+export async function commitRapTake(
+  sessionId: string,
+  sourceRecordingId: string,
+  vocalRack?: VocalRackPayload,
+): Promise<{
+  recording_id: string;
+  session_id: string;
+  filename: string;
+  duration_sec: number;
+  sample_rate: number;
+  channels: number;
+}> {
+  const body: Record<string, unknown> = { source_recording_id: sourceRecordingId };
+  if (vocalRack) body.vocal_rack = vocalRack;
+
+  const r = await fetch(`${base}/v1/recordings/sessions/${sessionId}/commit-rap-take`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+/** Generate a drum loop WAV via ai-generate and return as Blob. */
+export async function fetchGeneratedDrumsBlob(
+  bpm: number,
+  durationBars = 16,
+  genre = "hiphop",
+): Promise<Blob> {
+  const gen = await fetch(`${base}/v1/ai-generate/drums`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: "trap beat", bpm, duration: durationBars, genre }),
+  });
+  if (!gen.ok) throw new Error(await gen.text());
+  const dl = await fetch(`${base}/v1/ai-generate/download/drums`);
+  if (!dl.ok) throw new Error(await dl.text());
+  return dl.blob();
+}
+
 export async function applyAutotune(
   recordingId: string,
   sessionId: string,

@@ -24,12 +24,115 @@ from calliope.schemas import (
     RecordingUploadResponse,
     RecordingProcessRequest,
     RecordingProcessResponse,
+    CommitRapTakeRequest,
     PluginChainIn,
+    VocalRackIn,
 )
 
 router = APIRouter(prefix="/v1/recordings", tags=["recordings"])
 
 _recordings: dict[str, dict] = {}
+
+# Matches frontend VOCAL_PRESETS.dry_rap_punch — spoken/rap chain with tight tuning.
+DRY_RAP_RACK = VocalRackIn(
+    role="spoken_wordcut",
+    breath_air=18,
+    chest_body=64,
+    presence_bite=58,
+    de_esser=68,
+    saturation_drive=42,
+    width_stereo=28,
+    room_send=12,
+    delay_throw=10,
+    tune_tightness=62,
+    formant_shift=48,
+    warmth_low=55,
+    brilliance_air=32,
+    punch_snap=78,
+    verb_predelay=15,
+    motion_blur=12,
+    grit_parallel=48,
+)
+
+
+def _hydrate_session_from_disk(session_id: str, settings: Settings) -> dict | None:
+    """Rebuild in-memory session metadata from files on disk (survives API reload)."""
+    session_dir = settings.recordings_path / session_id
+    if not session_dir.is_dir():
+        return None
+
+    files: list[dict] = []
+    total_duration = 0.0
+    for path in sorted(session_dir.iterdir()):
+        if not path.is_file():
+            continue
+        ext = path.suffix.lstrip(".").lower()
+        if ext not in settings.supported_audio_formats:
+            continue
+        recording_id = path.stem
+        duration = 0.0
+        try:
+            info = get_audio_info(path)
+            duration = float(info["duration_sec"])
+        except Exception:
+            try:
+                samples, sr = read_audio_file(path, mono=True)
+                duration = float(len(samples) / max(sr, 1))
+            except Exception:
+                continue
+
+        files.append(
+            {
+                "id": recording_id,
+                "filename": path.name,
+                "original_name": path.name,
+                "format": ext,
+                "path": str(path),
+                "duration_sec": duration,
+                "track_type": "vocal",
+                "uploaded_at": datetime.utcfromtimestamp(path.stat().st_mtime),
+            }
+        )
+        total_duration += duration
+
+    session = {
+        "id": session_id,
+        "name": f"Session {session_id[:8]}",
+        "created_at": datetime.utcfromtimestamp(session_dir.stat().st_ctime),
+        "sample_rate": 48_000,
+        "channels": 2,
+        "status": "active" if files else "initialized",
+        "files": files,
+        "duration_sec": total_duration,
+    }
+    _recordings[session_id] = session
+    return session
+
+
+def _get_session(session_id: str) -> dict:
+    if session_id in _recordings:
+        return _recordings[session_id]
+    settings = get_settings()
+    session = _hydrate_session_from_disk(session_id, settings)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+def _resolve_recording_path(session_id: str, file_id: str) -> Path | None:
+    settings = get_settings()
+    session = _get_session(session_id)
+    recording = next((f for f in session["files"] if f["id"] == file_id), None)
+    if recording:
+        path = Path(recording["path"])
+        if path.is_file():
+            return path
+    session_dir = settings.recordings_path / session_id
+    for ext in settings.supported_audio_formats:
+        candidate = session_dir / f"{file_id}.{ext}"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 @router.post("/sessions", response_model=RecordingSessionOut)
@@ -68,10 +171,7 @@ async def create_session(body: RecordingSessionCreate) -> RecordingSessionOut:
 @router.get("/sessions/{session_id}", response_model=RecordingSessionOut)
 async def get_session(session_id: str) -> RecordingSessionOut:
     """Get recording session details."""
-    if session_id not in _recordings:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    session = _recordings[session_id]
+    session = _get_session(session_id)
     return RecordingSessionOut(
         id=session["id"],
         name=session["name"],
@@ -97,10 +197,7 @@ async def upload_recording(
     """
     settings = get_settings()
     
-    if session_id not in _recordings:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    session = _recordings[session_id]
+    session = _get_session(session_id)
     
     ext = Path(file.filename).suffix.lstrip(".").lower()
     if ext not in settings.supported_audio_formats:
@@ -171,10 +268,7 @@ async def upload_recording(
 @router.get("/sessions/{session_id}/files")
 async def list_session_files(session_id: str) -> list[dict]:
     """List all files in a recording session."""
-    if session_id not in _recordings:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    return _recordings[session_id]["files"]
+    return _get_session(session_id)["files"]
 
 
 @router.get("/sessions/{session_id}/files/{file_id}/download")
@@ -184,18 +278,16 @@ async def download_recording(
     format: Annotated[str | None, Query(alias="format")] = None,
 ) -> FileResponse:
     """Download a recording file, optionally converting format."""
-    if session_id not in _recordings:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    session = _recordings[session_id]
-    recording = next((f for f in session["files"] if f["id"] == file_id), None)
-    
-    if recording is None:
+    settings = get_settings()
+    file_path = _resolve_recording_path(session_id, file_id)
+    if file_path is None:
         raise HTTPException(status_code=404, detail="File not found")
+
+    session = _get_session(session_id)
+    recording = next((f for f in session["files"] if f["id"] == file_id), None)
+    rec_format = recording["format"] if recording else file_path.suffix.lstrip(".").lower()
     
-    file_path = Path(recording["path"])
-    
-    if format and format != recording["format"]:
+    if format and format != rec_format:
         settings = get_settings()
         export_path = settings.exports_path / f"{file_id}_export.{format}"
         
@@ -203,7 +295,8 @@ async def download_recording(
         convert_format(file_path, export_path, format)
         return FileResponse(export_path, media_type=f"audio/{format}")
     
-    return FileResponse(file_path, media_type=f"audio/{recording['format']}")
+    media = f"audio/{rec_format}"
+    return FileResponse(file_path, media_type=media)
 
 
 @router.get("/enhanced/{file_id}.wav")
@@ -225,55 +318,138 @@ async def process_recording(body: RecordingProcessRequest) -> RecordingProcessRe
     
     recording_id = body.recording_id
     session_id = body.session_id
-    
-    if session_id in _recordings:
-        session = _recordings[session_id]
-        recording = next((f for f in session["files"] if f["id"] == recording_id), None)
+
+    file_path = _resolve_recording_path(session_id, recording_id)
+    if file_path is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    try:
+        samples, sr = read_audio_file(file_path)
         
-        if recording:
-            file_path = Path(recording["path"])
-            try:
-                samples, sr = read_audio_file(file_path)
-                
-                from calliope.voice.engine import process_voice_unit
-                from calliope.schemas import VocalRackIn
-                
-                rack = body.vocal_rack or VocalRackIn()
-                processed, report = process_voice_unit(samples, sr, rack)
-                
-                if processed.ndim == 2:
-                    left = processed[:, 0]
-                    right = processed[:, 1]
-                else:
-                    left = right = processed
-                
-                output_filename = f"{recording_id}_processed.wav"
-                output_path = settings.processed_path / output_filename
-                
-                write_audio_file(
-                    output_path,
-                    processed.T if processed.ndim == 2 else processed,
-                    sr,
-                    format="wav",
-                )
-                
-                return RecordingProcessResponse(
-                    recording_id=recording_id,
-                    output_file=output_filename,
-                    duration_sec=len(left) / sr,
-                    sample_rate=sr,
-                    metrics={
-                        "rms_in_dbfs": report.rms_in_dbfs,
-                        "rms_out_dbfs": report.rms_out_dbfs,
-                        "peak_in": report.peak_in,
-                        "peak_out": report.peak_out,
-                        "bypassed": report.bypassed,
-                    },
-                )
-            except AudioReadError as e:
-                raise HTTPException(status_code=500, detail=str(e))
-    
-    raise HTTPException(status_code=404, detail="Recording not found")
+        from calliope.voice.engine import process_voice_unit
+        from calliope.schemas import VocalRackIn
+        
+        rack = body.vocal_rack or VocalRackIn()
+        processed, report = process_voice_unit(samples, sr, rack)
+        
+        if processed.ndim == 2:
+            left = processed[:, 0]
+            right = processed[:, 1]
+        else:
+            left = right = processed
+        
+        output_filename = f"{recording_id}_processed.wav"
+        output_path = settings.processed_path / output_filename
+        
+        write_audio_file(
+            output_path,
+            processed.T if processed.ndim == 2 else processed,
+            sr,
+            format="wav",
+        )
+        
+        return RecordingProcessResponse(
+            recording_id=recording_id,
+            output_file=output_filename,
+            duration_sec=len(left) / sr,
+            sample_rate=sr,
+            metrics={
+                "rms_in_dbfs": report.rms_in_dbfs,
+                "rms_out_dbfs": report.rms_out_dbfs,
+                "peak_in": report.peak_in,
+                "peak_out": report.peak_out,
+                "bypassed": report.bypassed,
+            },
+        )
+    except AudioReadError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sessions/{session_id}/commit-rap-take", response_model=RecordingUploadResponse)
+async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> RecordingUploadResponse:
+    """
+    Autotune + dry-rap vocal chain on a session recording, then register the result
+    as a new take the Studio timeline can play and export.
+    """
+    session = _get_session(session_id)
+    file_path = _resolve_recording_path(session_id, body.source_recording_id)
+    if file_path is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    recording = next((f for f in session["files"] if f["id"] == body.source_recording_id), None)
+    settings = get_settings()
+    samples, sr = read_audio_file(file_path, mono=True)
+
+    # Production autotune when available; voice rack still applies pitch correction if this fails.
+    try:
+        from calliope.tune.gravy_autotune import AutotuneConfig, AutotuneMode, ScaleType, auto_tune
+
+        at_cfg = AutotuneConfig(
+            mode=AutotuneMode.HARD,
+            scale_type=ScaleType.MINOR,
+            root_midi=60,
+            strength=0.88,
+            speed=0.45,
+            formant_correction=True,
+        )
+        at_result = auto_tune(samples, sr, at_cfg)
+        samples = at_result.corrected_samples
+    except Exception:
+        pass
+
+    from calliope.voice.engine import process_voice_unit
+
+    rack = body.vocal_rack or DRY_RAP_RACK
+    processed, _report = process_voice_unit(
+        samples,
+        sr,
+        rack,
+        demo_hz=None,
+        output_stereo=False,
+    )
+    mono = processed[:, 0] if processed.ndim == 2 else processed
+
+    new_id = str(uuid.uuid4())
+    filename = f"{new_id}.wav"
+    out_path = settings.recordings_path / session_id / filename
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    write_audio_file(out_path, mono, sr, format="wav")
+
+    try:
+        info = get_audio_info(out_path)
+        duration = float(info["duration_sec"])
+        sample_rate = int(info.get("sample_rate", sr))
+        channels = int(info.get("channels", 1))
+    except Exception:
+        duration = float(len(mono) / max(sr, 1))
+        sample_rate = sr
+        channels = 1
+
+    base_name = Path(
+        (recording or {}).get("original_name") or (recording or {}).get("filename") or file_path.name
+    ).stem
+    recording_meta = {
+        "id": new_id,
+        "filename": filename,
+        "original_name": f"{base_name} (autotuned).wav",
+        "format": "wav",
+        "path": str(out_path),
+        "duration_sec": duration,
+        "track_type": (recording or {}).get("track_type", "vocal"),
+        "uploaded_at": datetime.utcnow(),
+    }
+    session["files"].append(recording_meta)
+    session["duration_sec"] += duration
+    session["status"] = "active"
+
+    return RecordingUploadResponse(
+        recording_id=new_id,
+        session_id=session_id,
+        filename=filename,
+        duration_sec=duration,
+        sample_rate=sample_rate,
+        channels=channels,
+    )
 
 
 @router.delete("/sessions/{session_id}")

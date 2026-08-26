@@ -409,6 +409,13 @@ class RecordingProcessResponse(BaseModel):
     metrics: dict[str, float]
 
 
+class CommitRapTakeRequest(BaseModel):
+    """Process a vocal take for rap (autotune + dry_rap rack) and register it in the session."""
+
+    source_recording_id: str
+    vocal_rack: VocalRackIn | None = None
+
+
 class AutotuneConfigIn(BaseModel):
     mode: Literal["auto", "hard", "soft", "melodic"] = "auto"
     scale_type: Literal[
