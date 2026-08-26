@@ -39,12 +39,13 @@ async def test_commit_rap_take_registers_new_session_file():
 
         commit = await c.post(
             f"/v1/recordings/sessions/{session_id}/commit-rap-take",
-            json={"source_recording_id": source_id},
+            json={"source_recording_id": source_id, "style": "hard_tune"},
         )
         assert commit.status_code == 200, commit.text
         body = commit.json()
         assert body["recording_id"] != source_id
         assert body["duration_sec"] > 0
+        assert body["style"] == "hard_tune"
 
         files = await c.get(f"/v1/recordings/sessions/{session_id}/files")
         assert files.status_code == 200

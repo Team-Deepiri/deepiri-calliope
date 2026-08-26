@@ -275,19 +275,30 @@ export async function processRecording(
 }
 
 /** Autotune + dry-rap vocal chain; registers a new take in the session for timeline playback. */
-export async function commitRapTake(
-  sessionId: string,
-  sourceRecordingId: string,
-  vocalRack?: VocalRackPayload,
-): Promise<{
+export type RapStyle = "hard_tune" | "melodic_rap" | "natural";
+
+export type CommitRapTakeResult = {
   recording_id: string;
   session_id: string;
   filename: string;
   duration_sec: number;
   sample_rate: number;
   channels: number;
-}> {
-  const body: Record<string, unknown> = { source_recording_id: sourceRecordingId };
+  detected_bpm?: number | null;
+  bpm_confidence?: number;
+  style?: RapStyle;
+};
+
+export async function commitRapTake(
+  sessionId: string,
+  sourceRecordingId: string,
+  vocalRack?: VocalRackPayload,
+  style: RapStyle = "melodic_rap",
+): Promise<CommitRapTakeResult> {
+  const body: Record<string, unknown> = {
+    source_recording_id: sourceRecordingId,
+    style,
+  };
   if (vocalRack) body.vocal_rack = vocalRack;
 
   const r = await fetch(`${base}/v1/recordings/sessions/${sessionId}/commit-rap-take`, {

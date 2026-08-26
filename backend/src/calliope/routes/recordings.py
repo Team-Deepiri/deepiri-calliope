@@ -25,6 +25,7 @@ from calliope.schemas import (
     RecordingProcessRequest,
     RecordingProcessResponse,
     CommitRapTakeRequest,
+    CommitRapTakeResponse,
     PluginChainIn,
     VocalRackIn,
 )
@@ -53,6 +54,50 @@ DRY_RAP_RACK = VocalRackIn(
     motion_blur=12,
     grit_parallel=48,
 )
+
+RAP_STYLE_RACK_TWEAKS: dict[str, dict[str, int]] = {
+    "hard_tune": {"tune_tightness": 78, "saturation_drive": 48, "punch_snap": 82},
+    "melodic_rap": {"tune_tightness": 62, "saturation_drive": 42, "punch_snap": 78},
+    "natural": {"tune_tightness": 48, "saturation_drive": 32, "punch_snap": 68},
+}
+
+
+def _rap_style_autotune_config(style: str):
+    from calliope.tune.gravy_autotune import AutotuneConfig, AutotuneMode, ScaleType
+
+    presets = {
+        "hard_tune": AutotuneConfig(
+            mode=AutotuneMode.HARD,
+            scale_type=ScaleType.MINOR,
+            root_midi=60,
+            strength=0.95,
+            speed=0.18,
+            formant_correction=True,
+        ),
+        "melodic_rap": AutotuneConfig(
+            mode=AutotuneMode.MELODIC,
+            scale_type=ScaleType.MINOR,
+            root_midi=60,
+            strength=0.88,
+            speed=0.45,
+            formant_correction=True,
+        ),
+        "natural": AutotuneConfig(
+            mode=AutotuneMode.SOFT,
+            scale_type=ScaleType.MINOR,
+            root_midi=60,
+            strength=0.72,
+            speed=0.62,
+            formant_correction=True,
+        ),
+    }
+    return presets.get(style, presets["melodic_rap"])
+
+
+def _rap_style_rack(style: str, override: VocalRackIn | None) -> VocalRackIn:
+    base = override or DRY_RAP_RACK
+    tweaks = RAP_STYLE_RACK_TWEAKS.get(style, RAP_STYLE_RACK_TWEAKS["melodic_rap"])
+    return base.model_copy(update=tweaks)
 
 
 def _hydrate_session_from_disk(session_id: str, settings: Settings) -> dict | None:
@@ -365,8 +410,8 @@ async def process_recording(body: RecordingProcessRequest) -> RecordingProcessRe
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/sessions/{session_id}/commit-rap-take", response_model=RecordingUploadResponse)
-async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> RecordingUploadResponse:
+@router.post("/sessions/{session_id}/commit-rap-take", response_model=CommitRapTakeResponse)
+async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> CommitRapTakeResponse:
     """
     Autotune + dry-rap vocal chain on a session recording, then register the result
     as a new take the Studio timeline can play and export.
@@ -380,18 +425,24 @@ async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> Record
     settings = get_settings()
     samples, sr = read_audio_file(file_path, mono=True)
 
+    style = body.style if body.style in RAP_STYLE_RACK_TWEAKS else "melodic_rap"
+    detected_bpm: float | None = None
+    bpm_confidence = 0.0
+    try:
+        from calliope.audio.beat_sync import TempoDetector
+
+        bpm_val, bpm_conf = TempoDetector(sr).detect_bpm(samples)
+        if bpm_conf > 0.15:
+            detected_bpm = round(float(bpm_val), 1)
+            bpm_confidence = float(bpm_conf)
+    except Exception:
+        pass
+
     # Production autotune when available; voice rack still applies pitch correction if this fails.
     try:
-        from calliope.tune.gravy_autotune import AutotuneConfig, AutotuneMode, ScaleType, auto_tune
+        from calliope.tune.gravy_autotune import auto_tune
 
-        at_cfg = AutotuneConfig(
-            mode=AutotuneMode.HARD,
-            scale_type=ScaleType.MINOR,
-            root_midi=60,
-            strength=0.88,
-            speed=0.45,
-            formant_correction=True,
-        )
+        at_cfg = _rap_style_autotune_config(style)
         at_result = auto_tune(samples, sr, at_cfg)
         samples = at_result.corrected_samples
     except Exception:
@@ -399,7 +450,7 @@ async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> Record
 
     from calliope.voice.engine import process_voice_unit
 
-    rack = body.vocal_rack or DRY_RAP_RACK
+    rack = _rap_style_rack(style, body.vocal_rack)
     processed, _report = process_voice_unit(
         samples,
         sr,
@@ -442,13 +493,16 @@ async def commit_rap_take(session_id: str, body: CommitRapTakeRequest) -> Record
     session["duration_sec"] += duration
     session["status"] = "active"
 
-    return RecordingUploadResponse(
+    return CommitRapTakeResponse(
         recording_id=new_id,
         session_id=session_id,
         filename=filename,
         duration_sec=duration,
         sample_rate=sample_rate,
         channels=channels,
+        detected_bpm=detected_bpm,
+        bpm_confidence=bpm_confidence,
+        style=style,
     )
 
 

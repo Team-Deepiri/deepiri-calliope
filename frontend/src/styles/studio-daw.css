@@ -1357,12 +1357,40 @@
   color: var(--daw-text);
 }
 
+.daw-rap-path__style {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--daw-dim);
+}
+
+.daw-rap-path__style select {
+  padding: 0.38rem 0.45rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--daw-text);
+  background: var(--daw-panel);
+  border: 1px solid var(--daw-border);
+  border-radius: var(--daw-radius);
+  cursor: pointer;
+}
+
+.daw-rap-path__style select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .daw-rap-path__actions {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
 }
 
+.daw-rap-path__hero,
 .daw-rap-path__primary,
 .daw-rap-path__secondary {
   display: inline-flex;
@@ -1376,6 +1404,17 @@
   border-radius: var(--daw-radius);
   border: 1px solid transparent;
   cursor: pointer;
+}
+
+.daw-rap-path__hero {
+  background: linear-gradient(135deg, #7c3aed, #6b9fff);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(124, 58, 237, 0.28);
+}
+
+.daw-rap-path__hero:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .daw-rap-path__primary {

@@ -414,6 +414,15 @@ class CommitRapTakeRequest(BaseModel):
 
     source_recording_id: str
     vocal_rack: VocalRackIn | None = None
+    style: Literal["hard_tune", "melodic_rap", "natural"] = "melodic_rap"
+
+
+class CommitRapTakeResponse(RecordingUploadResponse):
+    """Rap take commit result with tempo hints for beat generation."""
+
+    detected_bpm: float | None = None
+    bpm_confidence: float = 0.0
+    style: str = "melodic_rap"
 
 
 class AutotuneConfigIn(BaseModel):
