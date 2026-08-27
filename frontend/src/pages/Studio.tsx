@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Cpu, Download, FolderOpen, GitBranch, Keyboard, Mic, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Cpu, Download, FilePlus2, FolderOpen, GitBranch, Keyboard, Mic, Music, Plus, Redo2, Undo2 } from "lucide-react";
 import {
   alignAamati,
   analyzeBrief,
@@ -27,6 +27,7 @@ import { StudioTransport, type TransportState } from "../components/studio/Studi
 import { TimelineView, type TimelineClip } from "../components/studio/TimelineView";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
+import { VocalAIPanel } from "../components/studio/VocalAIPanel";
 import {
   barsFromDuration,
   DEFAULT_MASTER_CHANNEL,
@@ -36,6 +37,9 @@ import {
   type EngineMasterChannel,
 } from "../audio/studioEngine";
 import { downloadBlob, encodeWav } from "../audio/exportWav";
+import { SynthEngine, getSharedSynthContext, type SynthConfig, DEFAULT_SYNTH } from "../audio/synthEngine";
+import { PianoRoll, type PianoNote } from "../components/studio/PianoRoll";
+import { InstrumentTab } from "../components/studio/InstrumentTab";
 import { takeGesturesStudioImport } from "../gestures/studioHandoff";
 import { DEFAULT_VOCAL_RACK, type VocalRackPayload } from "../types/vocalRack";
 import type { AutomationPoint, PluginInstance, RecordingFile } from "../types/audio";
@@ -51,7 +55,7 @@ const PROVIDERS: { value: RouterProvider; label: string }[] = [
 
 const TRACK_COLORS = ["#6b7a99", "#8b6b9e", "#5b8def", "#3dd68c", "#e8b84a", "#f2555a", "#7dd3c0", "#c084fc"];
 
-type InspectorTab = "vocal" | "fx" | "ai" | "pipeline";
+type InspectorTab = "vocal" | "fx" | "ai" | "pipeline" | "instrument";
 
 const INITIAL_TRACKS: MixerTrack[] = [
   { id: "1", name: "Drums", type: "drum", volume: -3, pan: 0, muted: false, solo: false, color: "#6b7a99" },
@@ -76,6 +80,16 @@ type StudioClip = EngineClip & {
 };
 
 const LIVE_CLIP_ID = "clip-live-recording";
+const STORAGE_KEY = "calliope.project.v1";
+
+type ProjectSnapshot = {
+  bpm: number;
+  tracks: MixerTrack[];
+  clips: Omit<StudioClip, "waveformPeaks">[];
+  pluginChain: PluginInstance[];
+  trackPlugins: Record<string, PluginInstance[]>;
+  sections: StudioSection[];
+};
 
 export function Studio() {
   const recorderRef = useRef<AudioRecorderHandle>(null);
@@ -97,9 +111,34 @@ export function Studio() {
   const [metronomeOn, setMetronomeOn] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [trackPlugins, setTrackPlugins] = useState<Record<string, PluginInstance[]>>({});
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const selectedClipRef = useRef<string | null>(null);
+  const [recordedSamples, setRecordedSamples] = useState<Float32Array | null>(null);
+  const [recordedSampleRate, setRecordedSampleRate] = useState<number>(48000);
+  const [lastRecordingFile, setLastRecordingFile] = useState<{ id: string; sessionId: string } | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const liveGrowRef = useRef<number | null>(null);
   const liveStartRef = useRef<{ bar: number; atMs: number } | null>(null);
+  const synthRef = useRef<SynthEngine | null>(null);
+  const [synthConfig, setSynthConfig] = useState<SynthConfig>({ ...DEFAULT_SYNTH });
+  const [pianoNotes, setPianoNotes] = useState<PianoNote[]>([]);
+  const [seqPattern, setSeqPattern] = useState(() => {
+    const empty = (len: number) => Array.from({ length: len }, () => ({ active: false, velocity: 100, ratchet: 1 }));
+    const rows = ["Kick","Snare","HH Closed","HH Open","Clap","Tom","Crash","Perc"] as const;
+    const steps: Record<string, { active: boolean; velocity: number; ratchet: number }[]> = {};
+    rows.forEach((r) => { steps[r] = empty(16); });
+    // Default pattern: 4-on-the-floor kick
+    steps["Kick"][0].active = true;
+    steps["Kick"][4].active = true;
+    steps["Kick"][8].active = true;
+    steps["Kick"][12].active = true;
+    // Snare on 2 and 4
+    steps["Snare"][4].active = true;
+    steps["Snare"][12].active = true;
+    // Hi-hats on every 8th
+    for (let i = 0; i < 16; i += 2) steps["HH Closed"][i].active = true;
+    return { id: "default", name: "Beat 1", steps, length: 16 };
+  });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [masterCh, setMasterCh] = useState<EngineMasterChannel>({ ...DEFAULT_MASTER_CHANNEL });
   const [automation, setAutomation] = useState<Record<string, AutomationPoint[]>>({});
@@ -144,9 +183,154 @@ export function Studio() {
 
   const onPlayRef = useRef<() => void>(() => {});
   const onRecordRef = useRef<() => void>(() => {});
+  const undoRef = useRef<() => void>(() => {});
+  const redoRef = useRef<() => void>(() => {});
+  const deleteClipRef = useRef<(clipId: string) => void>(() => {});
 
   tracksRef.current = tracks;
   clipsRef.current = clips;
+  selectedClipRef.current = selectedClipId;
+
+  // —— Undo/redo history (snapshots of the arrangement) ——
+  const pastRef = useRef<Array<Pick<ProjectSnapshot, "tracks" | "clips">>>([]);
+  const futureRef = useRef<Array<Pick<ProjectSnapshot, "tracks" | "clips">>>([]);
+  const lastPushRef = useRef<{ tag: string; t: number } | null>(null);
+  const [hist, setHist] = useState({ past: 0, future: 0 });
+  const pushHistory = useCallback((tag: string) => {
+    const now = performance.now();
+    const last = lastPushRef.current;
+    if (last && last.tag === tag && now - last.t < 900) {
+      last.t = now; // coalesce drag streams into one undo step
+      return;
+    }
+    const snap: ProjectSnapshot = {
+      bpm,
+      tracks: tracksRef.current.map((t) => ({ ...t })),
+      clips: clipsRef.current.map((c) => ({ ...c })),
+      pluginChain: pluginChain.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) })),
+      trackPlugins: Object.fromEntries(
+        Object.entries(trackPlugins).map(([k, v]) => [k, v.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) }))]),
+      ),
+      sections: sections.map((sec) => ({ ...sec })),
+    };
+    pastRef.current.push(snap);
+    if (pastRef.current.length > 80) pastRef.current.shift();
+    futureRef.current = [];
+    lastPushRef.current = { tag, t: now };
+    setHist({ past: pastRef.current.length, future: 0 });
+  }, [bpm, pluginChain, trackPlugins, sections]);
+
+  const applySnapshot = useCallback(
+    (snap: { tracks: MixerTrack[]; clips: StudioClip[] }) => {
+      setTracks(snap.tracks.map((t) => ({ ...t })));
+      setClips(snap.clips.map((c) => ({ ...c })));
+    },
+    [],
+  );
+
+  const undo = useCallback(() => {
+    const prev = pastRef.current.pop();
+    if (!prev) return;
+    futureRef.current.push({ tracks: tracksRef.current, clips: clipsRef.current });
+    applySnapshot(prev);
+    lastPushRef.current = null;
+    setHist({ past: pastRef.current.length, future: futureRef.current.length });
+  }, [applySnapshot]);
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.pop();
+    if (!next) return;
+    const snap: ProjectSnapshot = {
+      bpm,
+      tracks: tracksRef.current.map((t) => ({ ...t })),
+      clips: clipsRef.current.map((c) => ({ ...c })),
+      pluginChain: pluginChain.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) })),
+      trackPlugins: Object.fromEntries(
+        Object.entries(trackPlugins).map(([k, v]) => [k, v.map((p) => ({ ...p, parameters: p.parameters.map((pp) => ({ ...pp })) }))]),
+      ),
+      sections: sections.map((sec) => ({ ...sec })),
+    };
+    pastRef.current.push(snap);
+    applySnapshot(next);
+    lastPushRef.current = null;
+    setHist({ past: pastRef.current.length, future: futureRef.current.length });
+  }, [applySnapshot]);
+
+  // —— Project persistence (localStorage autosave) ——
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const p = JSON.parse(raw) as ProjectSnapshot;
+      if (!Array.isArray(p.clips) || !Array.isArray(p.tracks)) return;
+      setBpm(p.bpm ?? 120);
+      setTracks(p.tracks);
+      setClips(p.clips);
+      setPluginChain(p.pluginChain ?? []);
+      setTrackPlugins(p.trackPlugins ?? {});
+      setSections(p.sections ?? SECTIONS);
+      restoredRef.current = true;
+      setPlayHint("Restored your last project");
+      void (async () => {
+        const engine = ensureEngine();
+        for (const c of p.clips) {
+          try {
+            await engine.loadClip(c);
+            const peaks = engine.getClipPeaks(c.sessionId, c.recordingId);
+            if (peaks) {
+              setClips((prev) => prev.map((x) => (x.id === c.id ? { ...x, waveformPeaks: peaks } : x)));
+            }
+          } catch {
+            /* clip source unavailable — keep placeholder */
+          }
+        }
+      })();
+    } catch {
+      /* corrupt save — start fresh */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (transport.recording) return; // don't persist live-take churn
+    const id = window.setTimeout(() => {
+      try {
+        const snap: ProjectSnapshot = {
+          bpm,
+          tracks,
+          clips: clips.map(({ waveformPeaks: _wp, ...rest }) => rest),
+          pluginChain,
+          trackPlugins,
+          sections,
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(snap));
+        setSavedAt(Date.now());
+      } catch {
+        /* storage full/unavailable */
+      }
+    }, 800);
+    return () => window.clearTimeout(id);
+  }, [bpm, tracks, clips, pluginChain, trackPlugins, sections, transport.recording]);
+
+  const newSession = useCallback(() => {
+    engineRef.current?.stop();
+    setTransport((t) => ({ ...t, playing: false, bar: 1, beat: 0 }));
+    setSelectedClipId(null);
+    localStorage.removeItem(STORAGE_KEY);
+    setTracks(INITIAL_TRACKS);
+    setClips([]);
+    setSections(SECTIONS);
+    setPluginChain([]);
+    setTrackPlugins({});
+    pastRef.current = [];
+    futureRef.current = [];
+    lastPushRef.current = null;
+    setHist({ past: 0, future: 0 });
+    setSavedAt(null);
+    restoredRef.current = true;
+    setPlayHint("New session");
+  }, []);
 
   useEffect(() => {
     engineRef.current = new StudioEngine();
@@ -215,6 +399,21 @@ export function Studio() {
       } else if (e.key === "?") {
         e.preventDefault();
         setShortcutsOpen((o) => !o);
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        if (e.shiftKey) redoRef.current();
+        else undoRef.current();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y")) {
+        e.preventDefault();
+        redoRef.current();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        const sel = selectedClipRef.current;
+        if (sel && sel !== LIVE_CLIP_ID) {
+          e.preventDefault();
+          deleteClipRef.current(sel);
+        }
+      } else if (e.key === "Escape") {
+        setSelectedClipId(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -276,13 +475,28 @@ export function Studio() {
       startBar,
       clips: clipsRef.current,
       tracks: tracksRef.current,
-      onBar: (bar, beat) => setTransport((t) => ({ ...t, playing: true, bar, beat })),
+      onBar: (bar, beat) => {
+        setTransport((t) => ({ ...t, playing: true, bar, beat }));
+        // Play piano roll notes at the current beat
+        if (pianoNotes.length > 0 && synthRef.current) {
+          const stepsPerBeat = 4;
+          const currentStep = (bar - 1) * 4 * stepsPerBeat + (beat - 1) * stepsPerBeat;
+          const note = pianoNotes.find((n) => Math.floor(n.start) === Math.floor(currentStep));
+          if (note) {
+            synthRef.current.noteOn(note.midi ?? 60, note.velocity ?? 100, `play-${note.id}`);
+            const durSec = note.duration * 60 / bpm / stepsPerBeat;
+            setTimeout(() => synthRef.current?.noteOff(note.midi ?? 60, `play-${note.id}`), durSec * 1000);
+          }
+        }
+      },
     });
     setTransport((t) => ({ ...t, playing: true }));
   };
 
   const onStop = () => {
     ensureEngine().stop();
+    synthRef.current?.disconnect();
+    synthRef.current = null;
     setTransport((t) => ({ ...t, playing: false, bar: 1, beat: 0 }));
   };
 
@@ -295,29 +509,74 @@ export function Studio() {
   };
   onPlayRef.current = () => void onPlay();
   onRecordRef.current = onRecord;
+  undoRef.current = undo;
+  redoRef.current = redo;
+  // MIDI keyboard input — map QWERTY keys to piano roll notes
+  // QWERTY mapping: Q=C4, 2=C#4, W=D4, 3=D#4, E=E4, R=F4, 5=F#4, T=G4, 6=G#4, Y=A4, 7=A#4, U=B4, I=C5
+  const keyToMidi: Record<string, number> = {
+    KeyQ: 60, // C4
+    Key2: 61, // C#4
+    KeyW: 62, // D4
+    Key3: 63, // D#4
+    KeyE: 64, // E4
+    KeyR: 65, // F4
+    Key5: 66, // F#4
+    KeyT: 67, // G4
+    Key6: 68, // G#4
+    KeyY: 69, // A4
+    Key7: 70, // A#4
+    KeyU: 71, // B4
+    KeyI: 72, // C5
+  };
 
-  const onClipMove = useCallback((clipId: string, newTrackId: string, newStartBar: number) => {
-    setClips((prev) =>
-      prev.map((c) => (c.id === clipId ? { ...c, trackId: newTrackId, startBar: Math.max(0, newStartBar) } : c)),
-    );
-  }, []);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const midi = keyToMidi[e.code];
+      if (midi && synthRef.current) {
+        synthRef.current.noteOn(midi, 100, `keyboard-${midi}`);
+        setTimeout(() => synthRef.current?.noteOff(midi, `keyboard-${midi}`), 400);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [synthRef.current]);
+
+  const onClipMove = useCallback(
+    (clipId: string, newTrackId: string, newStartBar: number) => {
+      pushHistory("move");
+      setClips((prev) =>
+        prev.map((c) =>
+          c.id === clipId ? { ...c, trackId: newTrackId, startBar: Math.max(0, newStartBar) } : c,
+        ),
+      );
+    },
+    [pushHistory],
+  );
 
   const onClipResize = useCallback(
     (clipId: string, newDurationBars: number) => {
+      pushHistory("resize");
       const barSec = (60 / bpm) * 4;
       setClips((prev) =>
         prev.map((c) => (c.id === clipId ? { ...c, durationSec: Math.max(0.25, newDurationBars) * barSec } : c)),
       );
     },
-    [bpm],
+    [bpm, pushHistory],
   );
 
-  const onDeleteClip = useCallback((clipId: string) => {
-    setClips((prev) => prev.filter((c) => c.id !== clipId));
-  }, []);
+  const onDeleteClip = useCallback(
+    (clipId: string) => {
+      pushHistory("delete");
+      setClips((prev) => prev.filter((c) => c.id !== clipId));
+      setSelectedClipId((cur) => (cur === clipId ? null : cur));
+    },
+    [pushHistory],
+  );
+  deleteClipRef.current = onDeleteClip;
 
   const onDuplicateClip = useCallback(
     (clipId: string) => {
+      pushHistory("duplicate");
       const barSec = (60 / bpm) * 4;
       setClips((prev) => {
         const src = prev.find((c) => c.id === clipId);
@@ -333,11 +592,12 @@ export function Studio() {
         ];
       });
     },
-    [bpm],
+    [bpm, pushHistory],
   );
 
   const onSplitClip = useCallback(
     (clipId: string, atBar: number) => {
+      pushHistory("split");
       const barSec = (60 / bpm) * 4;
       setClips((prev) => {
         const idx = prev.findIndex((c) => c.id === clipId);
@@ -358,12 +618,16 @@ export function Studio() {
         return [...prev.slice(0, idx), left, right, ...prev.slice(idx + 1)];
       });
     },
-    [bpm],
+    [bpm, pushHistory],
   );
 
-  const onRenameClip = useCallback((clipId: string, name: string) => {
-    setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, name } : c)));
-  }, []);
+  const onRenameClip = useCallback(
+    (clipId: string, name: string) => {
+      pushHistory("rename");
+      setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, name } : c)));
+    },
+    [pushHistory],
+  );
 
   const onRenderClipAudio = useCallback(
     async (clipId: string) => {
@@ -397,15 +661,19 @@ export function Studio() {
     [onUpdateTrack],
   );
 
-  const onDeleteTrackWithClips = useCallback((trackId: string) => {
+  const onDeleteTrackWithClips = useCallback(
+    (trackId: string) => {
     if (!window.confirm("Delete this track and every clip on it?")) return;
+    pushHistory("track-delete");
     if (tracksRef.current.length <= 1) {
       window.alert("The mixer needs at least one track.");
       return;
     }
     setTracks((prev) => prev.filter((t) => t.id !== trackId));
     setClips((prev) => prev.filter((c) => c.trackId !== trackId));
-  }, []);
+    },
+    [pushHistory],
+  );
 
   const onToggleMetronome = useCallback(() => {
     setMetronomeOn((prev) => {
@@ -543,6 +811,7 @@ export function Studio() {
 
   const placeClipFromFile = useCallback(
     (file: RecordingFile, sessionId: string, trackId: string, startBar: number, durationHint?: number) => {
+      if (!file.id.startsWith("clip-")) pushHistory("place");
       sessionIdRef.current = sessionId;
       const track = tracksRef.current.find((t) => t.id === trackId);
       const durationSec = file.duration_sec > 0 ? file.duration_sec : durationHint ?? 1;
@@ -566,7 +835,7 @@ export function Studio() {
           }
         });
     },
-    [],
+    [pushHistory],
   );
 
   // Gestures → Studio: place the conducted take on an audio track at bar 1
@@ -595,13 +864,51 @@ export function Studio() {
     setPlayHint(`Imported from Gestures: ${incoming.scoreLabel ?? incoming.name}`);
   }, [placeClipFromFile]);
 
-  const onRecordingComplete = (file: RecordingFile, sessionId: string, durationHint?: number) => {
+  // Instrument clip placement from PianoRoll selection
+  const placeInstrumentClip = useCallback((midiNotes: PianoNote[], trackId: string, startBar: number, durationSec: number) => {
+    if (!trackId) return;
+    pushHistory("place");
+    const track = tracksRef.current.find((t) => t.id === trackId);
+    const clip: StudioClip = {
+      id: `clip-piano-${Date.now()}`,
+      trackId,
+      sessionId: sessionIdRef.current ?? sessionId ?? "",
+      recordingId: "",
+      name: `Piano Clip ${tracks.length + 1}`,
+      startBar,
+      durationSec,
+      color: track?.color ?? "#3dd68c",
+      clipType: "instrument" as const,
+      midiNotes,
+    };
+    setClips((prev) => [...prev, clip]);
+    // Pre-load the clip in the engine so renderMix can find it
+    void ensureEngine().then((e) => e.preload([clip]));
+  }, []);
+
+  const onRecordingComplete = async (file: RecordingFile, sessionId: string, durationHint?: number) => {
     const trackId = selectedTrackId || vocalTrack?.id || "4";
     const startBar = liveStartRef.current?.bar ?? Math.max(0, transport.bar - 1);
     liveStartRef.current = null;
     setClips((prev) => prev.filter((c) => c.id !== LIVE_CLIP_ID));
     placeClipFromFile(file, sessionId, trackId, startBar, durationHint);
+    setLastRecordingFile({ id: file.id, sessionId });
     setPlayHint("");
+    // Decode the uploaded WAV for real-time DSP processing
+    try {
+      const resp = await fetch(`/v1/recordings/sessions/${sessionId}/files/${file.id}/download`);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const audioCtx = new AudioContext();
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        setRecordedSamples(audioBuffer.getChannelData(0));
+        setRecordedSampleRate(audioBuffer.sampleRate);
+        audioCtx.close();
+      }
+    } catch (e) {
+      console.warn("Could not decode recording for DSP preview:", e);
+    }
   };
 
   const onTrackFileDropRef = useRef<
@@ -621,7 +928,7 @@ export function Studio() {
       if (!target) return;
       for (const file of Array.from(files)) {
         try {
-          await onTrackFileDropRef.current(target.id, file, nextBar);
+          await onTrackFileDropRef.current?.(target.id, file, nextBar);
           nextBar += 8; // stagger until the real duration is known
         } catch (e) {
           console.error("import failed", file.name, e);
@@ -658,13 +965,13 @@ export function Studio() {
   );
   onTrackFileDropRef.current = onTrackFileDrop;
 
-  const addTrack = () => {
+  const addTrack = (trackType: "audio" | "instrument" = "audio") => {
     const id = String(Date.now());
     const color = TRACK_COLORS[tracks.length % TRACK_COLORS.length];
     const track: MixerTrack = {
       id,
-      name: `Track ${tracks.length + 1}`,
-      type: "audio",
+      name: trackType === "instrument" ? `Instrument ${tracks.length + 1}` : `Track ${tracks.length + 1}`,
+      type: trackType,
       volume: -6,
       pan: 0,
       muted: false,
@@ -813,6 +1120,35 @@ export function Studio() {
         <button
           type="button"
           className="daw-toolbar__mode"
+          onClick={undo}
+          disabled={hist.past === 0}
+          title="Undo (Ctrl+Z)"
+          aria-label="Undo"
+        >
+          <Undo2 size={14} />
+        </button>
+        <button
+          type="button"
+          className="daw-toolbar__mode"
+          onClick={redo}
+          disabled={hist.future === 0}
+          title="Redo (Ctrl+Shift+Z)"
+          aria-label="Redo"
+        >
+          <Redo2 size={14} />
+        </button>
+        <button type="button" className="daw-toolbar__mode" onClick={newSession} title="New session">
+          <FilePlus2 size={14} />
+          New
+        </button>
+        {savedAt != null && (
+          <span className="daw-toolbar__saved" title="Project autosaved locally">
+            saved {new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        )}
+        <button
+          type="button"
+          className="daw-toolbar__mode"
           onClick={() => setExportOpen(true)}
           disabled={clips.length === 0}
           title="Export mixdown (E)"
@@ -850,10 +1186,16 @@ export function Studio() {
         <aside className="daw-tracks">
           <div className="daw-tracks__head">
             <span>Tracks</span>
-            <button type="button" className="daw-tracks__add" onClick={addTrack} title="Add track">
-              <Plus size={14} />
-              Add
-            </button>
+            <div style={{ display: "flex", gap: 2 }}>
+              <button type="button" className="daw-tracks__add" onClick={() => addTrack("audio")} title="Add audio track">
+                <Plus size={14} />
+                Audio
+              </button>
+              <button type="button" className="daw-tracks__add" onClick={() => addTrack("instrument")} title="Add instrument track" style={{ background: "var(--daw-accent)", color: "#fff" }}>
+                <Music size={14} />
+                MIDI
+              </button>
+            </div>
           </div>
           <div className="daw-tracks__list">
             {tracks.map((track) => (
@@ -921,7 +1263,10 @@ export function Studio() {
                 onSplitClip={onSplitClip}
                 onRenameClip={onRenameClip}
                 onRenderClip={onRenderClipAudio}
-                onTrackColorChange={(trackId, color) => onUpdateTrack(trackId, { color })}
+                onTrackColorChange={(trackId, color) => {
+                  pushHistory("color");
+                  onUpdateTrack(trackId, { color });
+                }}
               />
             ) : (
               <TimelineView
@@ -994,6 +1339,7 @@ export function Studio() {
                 ["fx", "FX"],
                 ["ai", "AI"],
                 ["pipeline", "Pipeline"],
+                ["instrument", "Keys"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -1016,7 +1362,13 @@ export function Studio() {
                   onInjectChange={setVocalInject}
                 />
                 <div style={{ marginTop: "0.75rem" }}>
-                  <VoiceDspPanel rack={vocalRack} sampleRate={48_000} />
+                  <VoiceDspPanel
+                    rack={vocalRack}
+                    sampleRate={recordedSampleRate}
+                    recordedSamples={recordedSamples ?? undefined}
+                    recordedSampleRate={recordedSampleRate}
+                    lastRecordingFile={lastRecordingFile}
+                  />
                 </div>
               </>
             )}
@@ -1055,30 +1407,28 @@ export function Studio() {
               })()
             )}
             {inspectorTab === "ai" && (
-              <div className="daw-architect">
-                <div>
-                  <label>Brief</label>
-                  <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} />
+              <div className="daw-ai-tab">
+                <VocalAIPanel />
+                <div className="daw-architect" style={{ marginTop: "1rem" }}>
+                  <div className="daw-inspector__scope">LLM Composer</div>
+                  <div>
+                    <label>Brief</label>
+                    <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} />
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <select value={provider} onChange={(e) => setProvider(e.target.value as RouterProvider)} style={{ flex: 1 }}>
+                      {PROVIDERS.map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </select>
+                    <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="Genre" style={{ flex: 1 }} />
+                  </div>
+                  <button type="button" className="daw-architect__run" disabled={planBusy} onClick={() => void onGeneratePlan()}>
+                    {planBusy ? "Generating…" : "Generate plan"}
+                  </button>
+                  {planMeta && <p className="daw-architect__meta">{planMeta}</p>}
+                  {planOut && <LlmOutput text={planOut} compact />}
                 </div>
-                <div>
-                  <label>Provider</label>
-                  <select value={provider} onChange={(e) => setProvider(e.target.value as RouterProvider)}>
-                    {PROVIDERS.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label>Genre</label>
-                  <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="UK garage" />
-                </div>
-                <button type="button" className="daw-architect__run" disabled={planBusy} onClick={() => void onGeneratePlan()}>
-                  {planBusy ? "Generating…" : "Generate plan (Ollama)"}
-                </button>
-                {planMeta && <p className="daw-architect__meta">{planMeta}</p>}
-                {planOut && <LlmOutput text={planOut} compact />}
               </div>
             )}
             {inspectorTab === "pipeline" && (
@@ -1124,6 +1474,19 @@ export function Studio() {
                 )}
                 {pipePlan && <LlmOutput text={pipePlan} compact />}
               </div>
+            )}
+            {inspectorTab === "instrument" && (
+              <InstrumentTab
+                synthConfig={synthConfig}
+                setSynthConfig={setSynthConfig}
+                synthRef={synthRef}
+                pianoNotes={pianoNotes}
+                setPianoNotes={setPianoNotes}
+                seqPattern={seqPattern}
+                setSeqPattern={setSeqPattern}
+                transport={transport}
+                bpm={bpm}
+              />
             )}
           </div>
         </aside>
