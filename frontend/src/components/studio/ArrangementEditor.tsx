@@ -300,13 +300,9 @@ export function ArrangementEditor({
   }, []);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="arrangement-editor daw-arrangement-editor"
-    >
+    <div className="arrangement-editor daw-arrangement-editor">
       {/* Minimap overview */}
-      <div className="minimap h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 gap-0.5">
+      <div className="minimap h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 gap-0.5 shrink-0">
         {sections.map((section) => (
           <div
             key={section.name}
@@ -325,7 +321,7 @@ export function ArrangementEditor({
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800/50">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800/50 shrink-0">
         <div className="flex items-center gap-2">
           <h2 className="text-xs font-bold text-white">Arrangement</h2>
           <span className="text-[9px] font-mono text-gray-500">
@@ -358,7 +354,7 @@ export function ArrangementEditor({
       {/* Time ruler — click to seek */}
       <div
         ref={rulerRef}
-        className="time-ruler flex h-7 bg-gray-900 border-b border-gray-800 cursor-pointer sticky top-0 z-10"
+        className="time-ruler flex h-7 bg-gray-900 border-b border-gray-800 cursor-pointer sticky top-0 z-10 shrink-0"
         onClick={handleRulerClick}
         title="Click to seek"
       >
@@ -475,17 +471,18 @@ export function ArrangementEditor({
                   {clips
                     .filter((c) => c.trackId === track.id)
                     .map((clip) => {
-                      const left = clip.startBar * barWidth;
-                      const width = clip.duration * barWidth;
+                      const left = Math.max(0, clip.startBar) * barWidth;
+                      const dur = Number.isFinite(clip.duration) ? Math.min(MAX_BARS, Math.max(0.25, clip.duration)) : 1;
+                      const width = Math.max(barWidth * 0.5, dur * barWidth);
                       return (
                         <div
                           key={clip.id}
-                          className="clip-block absolute rounded cursor-grab active:cursor-grabbing group z-10"
+                          className="clip-block daw-arrange-clip absolute rounded cursor-grab active:cursor-grabbing group z-10"
                           style={{
                             left,
-                            width: Math.max(barWidth * 0.5, width),
+                            width,
+                            height: Math.max(24, track.height - 4),
                             top: 2,
-                            bottom: 2,
                             backgroundColor: clip.color + "30",
                             borderLeft: `3px solid ${clip.color}`,
                           }}
@@ -494,11 +491,11 @@ export function ArrangementEditor({
                           onDoubleClick={() => handleDoubleClickClip(clip)}
                         >
                           {clip.waveformPeaks && clip.waveformPeaks.length > 0 && (
-                            <div className="absolute inset-0 flex items-end overflow-hidden rounded pointer-events-none opacity-70">
-                              <ClipWaveform peaks={clip.waveformPeaks} color={clip.color} />
+                            <div className="daw-arrange-clip__wave" aria-hidden="true">
+                              <ClipWaveform peaks={clip.waveformPeaks} color={clip.color} contained />
                             </div>
                           )}
-                          <div className="relative flex items-center gap-1.5 h-full px-2">
+                          <div className="daw-arrange-clip__meta relative flex items-center gap-1.5 h-full px-2">
                             <span className="text-[9px] font-bold truncate" style={{ color: clip.color }}>
                               {clip.name}
                             </span>
@@ -506,7 +503,7 @@ export function ArrangementEditor({
                               <RefreshCw size={8} className="text-gray-500 shrink-0" />
                             )}
                             <span className="text-[7px] font-mono text-gray-600 ml-auto">
-                              {clip.duration}b
+                              {Number.isFinite(clip.duration) ? clip.duration.toFixed(1) : "?"}b
                             </span>
                           </div>
 
@@ -616,6 +613,6 @@ export function ArrangementEditor({
           </>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
