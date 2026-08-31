@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
+import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
@@ -30,6 +31,113 @@ from calliope.schemas import (
 router = APIRouter(prefix="/v1/recordings", tags=["recordings"])
 
 _recordings: dict[str, dict] = {}
+
+
+def _hydrate_session_from_disk(session_id: str, settings: Settings) -> dict | None:
+    """Rebuild in-memory session metadata from files on disk (survives API reload)."""
+    session_dir = settings.recordings_path / session_id
+    if not session_dir.is_dir():
+        return None
+
+    files: list[dict] = []
+    total_duration = 0.0
+    for path in sorted(session_dir.iterdir()):
+        if not path.is_file():
+            continue
+        ext = path.suffix.lstrip(".").lower()
+        if ext not in settings.supported_audio_formats:
+            continue
+        recording_id = path.stem
+        duration = 0.0
+        try:
+            info = get_audio_info(path)
+            duration = float(info["duration_sec"])
+        except (AudioReadError, OSError, KeyError, TypeError, ValueError):
+            duration = 0.0
+
+        files.append(
+            {
+                "id": recording_id,
+                "filename": path.name,
+                "original_name": path.name,
+                "format": ext,
+                "path": str(path),
+                "duration_sec": duration,
+                "track_type": "vocal",
+                "uploaded_at": datetime.utcfromtimestamp(path.stat().st_mtime),
+            }
+        )
+        total_duration += duration
+
+    session = {
+        "id": session_id,
+        "name": f"Session {session_id[:8]}",
+        "created_at": datetime.utcfromtimestamp(session_dir.stat().st_ctime),
+        "sample_rate": 48_000,
+        "channels": 2,
+        "status": "active" if files else "initialized",
+        "files": files,
+        "duration_sec": total_duration,
+    }
+    _recordings[session_id] = session
+    return session
+
+
+def _get_session(session_id: str) -> dict:
+    if session_id in _recordings:
+        return _recordings[session_id]
+    settings = get_settings()
+    session = _hydrate_session_from_disk(session_id, settings)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+def write_and_register_session_wav(
+    session_id: str,
+    audio: np.ndarray,
+    sr: int,
+    original_name: str,
+    track_type: str = "vocal",
+) -> dict:
+    """Write a WAV into an existing session so Studio can load it as a clip."""
+    session = _get_session(session_id)
+    settings = get_settings()
+    new_id = str(uuid.uuid4())
+    filename = f"{new_id}.wav"
+    out_path = settings.recordings_path / session_id / filename
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        write_audio_file(out_path, audio, sr, format="wav")
+    except (AudioReadError, OSError) as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    try:
+        info = get_audio_info(out_path)
+        duration = float(info["duration_sec"])
+        sample_rate = int(info.get("sample_rate", sr))
+        channels = int(info.get("channels", 1 if audio.ndim == 1 else audio.shape[-1]))
+    except (AudioReadError, OSError, KeyError, TypeError, ValueError):
+        duration = float(audio.shape[0] / max(sr, 1))
+        sample_rate = sr
+        channels = 1 if audio.ndim == 1 else int(audio.shape[-1])
+
+    recording_meta = {
+        "id": new_id,
+        "filename": filename,
+        "original_name": original_name,
+        "format": "wav",
+        "path": str(out_path),
+        "duration_sec": duration,
+        "track_type": track_type,
+        "uploaded_at": datetime.utcnow(),
+        "sample_rate": sample_rate,
+        "channels": channels,
+    }
+    session["files"].append(recording_meta)
+    session["duration_sec"] = float(session.get("duration_sec") or 0) + duration
+    session["status"] = "active"
+    return recording_meta
 
 
 @router.post("/sessions", response_model=RecordingSessionOut)
