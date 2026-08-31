@@ -13,7 +13,6 @@ import {
 } from "../api/client";
 import { AudioRecorder, type AudioRecorderHandle } from "../components/audio/AudioRecorder";
 import { PluginChainEditor } from "../components/audio/PluginChainEditor";
-import { ArrangementEditor, type ArrangementClip } from "../components/studio/ArrangementEditor";
 import { AutomationLane } from "../components/studio/AutomationLane";
 import { ExportDialog } from "../components/studio/ExportDialog";
 import { KeyboardShortcuts } from "../components/studio/KeyboardShortcuts";
@@ -109,7 +108,6 @@ export function Studio() {
   const [viewMode, setViewMode] = useState<"arrange" | "edit">("arrange");
   const [pluginChain, setPluginChain] = useState<PluginInstance[]>([]);
   const [sections, setSections] = useState<StudioSection[]>(SECTIONS);
-  const [zoom, setZoom] = useState(1);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [metronomeOn, setMetronomeOn] = useState(false);
@@ -589,29 +587,6 @@ export function Studio() {
     return () => window.removeEventListener("keydown", handler);
   }, [synthRef.current]);
 
-  const onClipMove = useCallback(
-    (clipId: string, newTrackId: string, newStartBar: number) => {
-      pushHistory("move");
-      setClips((prev) =>
-        prev.map((c) =>
-          c.id === clipId ? { ...c, trackId: newTrackId, startBar: Math.max(0, newStartBar) } : c,
-        ),
-      );
-    },
-    [pushHistory],
-  );
-
-  const onClipResize = useCallback(
-    (clipId: string, newDurationBars: number) => {
-      pushHistory("resize");
-      const barSec = (60 / bpm) * 4;
-      setClips((prev) =>
-        prev.map((c) => (c.id === clipId ? { ...c, durationSec: Math.max(0.25, newDurationBars) * barSec } : c)),
-      );
-    },
-    [bpm, pushHistory],
-  );
-
   const onDeleteClip = useCallback(
     (clipId: string) => {
       pushHistory("delete");
@@ -621,88 +596,6 @@ export function Studio() {
     [pushHistory],
   );
   deleteClipRef.current = onDeleteClip;
-
-  const onDuplicateClip = useCallback(
-    (clipId: string) => {
-      pushHistory("duplicate");
-      const barSec = (60 / bpm) * 4;
-      setClips((prev) => {
-        const src = prev.find((c) => c.id === clipId);
-        if (!src) return prev;
-        const durBars = Math.max(1, Math.round(src.durationSec / barSec));
-        return [
-          ...prev,
-          {
-            ...src,
-            id: `clip-dup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            startBar: src.startBar + durBars,
-          },
-        ];
-      });
-    },
-    [bpm, pushHistory],
-  );
-
-  const onSplitClip = useCallback(
-    (clipId: string, atBar: number) => {
-      pushHistory("split");
-      const barSec = (60 / bpm) * 4;
-      setClips((prev) => {
-        const idx = prev.findIndex((c) => c.id === clipId);
-        if (idx < 0) return prev;
-        const c = prev[idx];
-        const cutSec = atBar * barSec - c.startBar * barSec;
-        if (cutSec <= 0.05 || cutSec >= c.durationSec - 0.05) return prev;
-        const left = { ...c, durationSec: cutSec };
-        const right: StudioClip = {
-          ...c,
-          id: `clip-split-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          startBar: atBar,
-          durationSec: c.durationSec - cutSec,
-          waveformPeaks: c.waveformPeaks
-            ? c.waveformPeaks.slice(Math.floor((cutSec / c.durationSec) * c.waveformPeaks.length))
-            : undefined,
-        };
-        return [...prev.slice(0, idx), left, right, ...prev.slice(idx + 1)];
-      });
-    },
-    [bpm, pushHistory],
-  );
-
-  const onRenameClip = useCallback(
-    (clipId: string, name: string) => {
-      pushHistory("rename");
-      setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, name } : c)));
-    },
-    [pushHistory],
-  );
-
-  const onRenderClipAudio = useCallback(
-    async (clipId: string) => {
-      const engine = engineRef.current;
-      const clip = clipsRef.current.find((c) => c.id === clipId);
-      if (!engine || !clip || exporting) return;
-      try {
-        setExporting(true);
-        const barSec = (60 / bpm) * 4;
-        const endBar = clip.startBar + Math.max(1, Math.ceil(clip.durationSec / barSec));
-        const buf = await engine.renderMix({
-          bpm,
-          clips: [clip],
-          tracks: tracksRef.current,
-          rangeBars: { startBar: clip.startBar, endBar },
-          tailSec: 0.4,
-        });
-        downloadBlob(encodeWav(buf, 24), `${clip.name.replace(/[^a-z0-9_-]+/gi, "_") || "clip"}.wav`);
-      } catch (e) {
-        console.error("clip render failed", e);
-        window.alert("Failed to render this clip as audio.");
-      } finally {
-        setExporting(false);
-      }
-    },
-    [bpm, exporting],
-  );
 
   const onRenameTrackName = useCallback(
     (trackId: string, name: string) => onUpdateTrack(trackId, { name }),
@@ -1234,7 +1127,7 @@ export function Studio() {
             type="button"
             className={`daw-toolbar__mode${viewMode === "edit" ? " is-active" : ""}`}
             onClick={() => setViewMode("edit")}
-            title="Clip editor — drag, resize, rename, and automate clips"
+            title="Same timeline as Arrange, with automation lane"
           >
             Clip edit
           </button>
@@ -1257,20 +1150,25 @@ export function Studio() {
             </button>
             {tracksOpen && (
               <>
-                <span>Tracks</span>
-                <div className="daw-tracks__head-actions" style={{ display: "flex", gap: 2 }}>
+                <span className="daw-tracks__head-title">Tracks</span>
+                <div className="daw-tracks__head-actions">
                   <button type="button" className="daw-tracks__add" onClick={() => addTrack("audio")} title="Add audio track">
                     <Plus size={14} />
                     Audio
                   </button>
-                  <button type="button" className="daw-tracks__add" onClick={() => addTrack("instrument")} title="Add instrument track" style={{ background: "var(--daw-accent)", color: "#fff" }}>
+                  <button
+                    type="button"
+                    className="daw-tracks__add daw-tracks__add--midi"
+                    onClick={() => addTrack("instrument")}
+                    title="Add instrument track"
+                  >
                     <Music size={14} />
                     MIDI
                   </button>
                 </div>
               </>
             )}
-            {!tracksOpen && <span>Tracks</span>}
+            {!tracksOpen && <span className="daw-tracks__head-title">Tracks</span>}
           </div>
           {tracksOpen && (
           <div className="daw-tracks__list">
@@ -1311,67 +1209,26 @@ export function Studio() {
 
         <div className="daw-center">
           <div className="daw-arrange">
-            {viewMode === "edit" ? (
-              <>
-                <p className="daw-arrange__hint">
-                  Clip edit — drag clips between tracks, resize edges, double-click a clip for detail. Switch back to{" "}
-                  <button type="button" className="daw-arrange__hint-link" onClick={() => setViewMode("arrange")}>
-                    Arrange
-                  </button>{" "}
-                  for the simpler timeline.
-                </p>
-              <ArrangementEditor
-                tracks={tracks.map((t) => ({ ...t, height: 72 }))}
-                clips={clips.map(
-                  (c): ArrangementClip => ({
-                    id: c.id,
-                    trackId: c.trackId,
-                    name: c.name,
-                    startBar: c.startBar,
-                    duration: barsFromDuration(c.durationSec, bpm),
-                    color: c.color,
-                    type: "audio",
-                    waveformPeaks: c.waveformPeaks,
-                  }),
-                )}
-                sections={sections}
-                isPlaying={transport.playing}
-                currentPosition={transport.bar - 1}
-                getPlayheadBar={getPlayheadBar}
-                zoom={zoom}
-                onZoomChange={setZoom}
-                onClipMove={onClipMove}
-                onClipResize={onClipResize}
-                onSectionChange={setSections}
-                onDeleteClip={onDeleteClip}
-                onDuplicateClip={onDuplicateClip}
-                onSplitClip={onSplitClip}
-                onRenameClip={onRenameClip}
-                onRenderClip={onRenderClipAudio}
-                onTrackColorChange={(trackId, color) => {
-                  pushHistory("color");
-                  onUpdateTrack(trackId, { color });
-                }}
-                onSeek={(bar) => void onSeekBar(bar)}
-              />
-              </>
-            ) : (
-              <TimelineView
-                bpm={bpm}
-                durationBars={durationBars}
-                sections={sections}
-                tracks={tracks}
-                selectedTrackId={selectedTrackId}
-                playheadBar={transport.bar}
-                isPlaying={transport.playing}
-                getPlayheadBar={getPlayheadBar}
-                clips={timelineClips}
-                onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
-                onSelectClip={setSelectedClipId}
-                selectedClipId={selectedClipId}
-                onSeek={(bar) => void onSeekBar(bar)}
-              />
+            {viewMode === "edit" && (
+              <p className="daw-arrange__hint">
+                Clip edit — same timeline as Arrange, plus automation below. Drag is easiest in Arrange; use this when you want volume automation.
+              </p>
             )}
+            <TimelineView
+              bpm={bpm}
+              durationBars={durationBars}
+              sections={sections}
+              tracks={tracks}
+              selectedTrackId={selectedTrackId}
+              playheadBar={transport.bar}
+              isPlaying={transport.playing}
+              getPlayheadBar={getPlayheadBar}
+              clips={timelineClips}
+              onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
+              onSelectClip={setSelectedClipId}
+              selectedClipId={selectedClipId}
+              onSeek={(bar) => void onSeekBar(bar)}
+            />
           </div>
 
           {viewMode === "edit" && (

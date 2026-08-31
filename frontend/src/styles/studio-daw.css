@@ -24,7 +24,7 @@
   --daw-toolbar-h: 52px;
   --daw-mixer-h: 180px;
   --daw-inspector-w: 340px;
-  --daw-track-col-w: 190px;
+  --daw-track-col-w: 210px;
 }
 
 .app-shell--studio .app-shell__main {
@@ -306,18 +306,32 @@
 
 .daw-tracks__head {
   flex-shrink: 0;
-  height: 36px;
+  min-height: 36px;
+  height: auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0 0.65rem;
+  justify-content: flex-start;
+  gap: 0.35rem 0.45rem;
+  padding: 0.4rem 0.55rem;
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--daw-dim);
   border-bottom: 1px solid var(--daw-border-subtle);
+}
+
+.daw-tracks__head-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.daw-tracks__head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  width: 100%;
 }
 
 .daw-tracks__add {
@@ -329,16 +343,26 @@
   border: 1px solid var(--daw-border);
   background: var(--daw-panel);
   color: var(--daw-text);
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-weight: 700;
   text-transform: none;
   letter-spacing: 0;
   cursor: pointer;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
 }
 
-.daw-tracks__add:hover {
+.daw-tracks__add--midi {
+  background: var(--daw-accent);
   border-color: var(--daw-accent);
-  color: var(--daw-accent);
+  color: #fff;
+}
+
+.daw-tracks__add--midi:hover {
+  filter: brightness(1.08);
+  color: #fff;
+  border-color: var(--daw-accent);
 }
 
 .daw-tracks__list {
@@ -2607,12 +2631,23 @@
 }
 
 .daw-tracks.is-collapsed .daw-tracks__head {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  writing-mode: horizontal-tb;
+  transform: none;
+  justify-content: flex-start;
+  align-items: center;
+  height: 100%;
+  padding: 0.5rem 0.15rem;
+  gap: 0.5rem;
+  border-bottom: none;
+}
+
+.daw-tracks.is-collapsed .daw-tracks__head-title {
   writing-mode: vertical-rl;
   transform: rotate(180deg);
-  justify-content: center;
-  height: 100%;
-  padding: 0.75rem 0;
-  border-bottom: none;
+  flex: 0;
+  letter-spacing: 0.12em;
 }
 
 .daw-tracks__head {
