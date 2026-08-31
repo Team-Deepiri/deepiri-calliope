@@ -183,6 +183,8 @@ export function Studio() {
 
   const onPlayRef = useRef<() => void>(() => {});
   const onRecordRef = useRef<() => void>(() => {});
+  const onStopRef = useRef<() => void>(() => {});
+  const onSeekBarRef = useRef<(barZero: number) => void>(() => {});
   const undoRef = useRef<() => void>(() => {});
   const redoRef = useRef<() => void>(() => {});
   const deleteClipRef = useRef<(clipId: string) => void>(() => {});
@@ -393,7 +395,17 @@ export function Studio() {
       if (target?.isContentEditable) return;
       if (e.code === "Space") {
         e.preventDefault();
-        void onPlayRef.current();
+        if (e.shiftKey) onStopRef.current();
+        else void onPlayRef.current();
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        onStopRef.current();
+      } else if (e.key === "ArrowLeft" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        onSeekBarRef.current(Math.max(0, transportRef.current.bar - 2));
+      } else if (e.key === "ArrowRight" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        onSeekBarRef.current(transportRef.current.bar);
       } else if (e.key === "r" || e.key === "R") {
         e.preventDefault();
         onRecordRef.current();
@@ -504,6 +516,32 @@ export function Studio() {
     setTransport((t) => ({ ...t, playing: false, bar: 1, beat: 0 }));
   };
 
+  /** Seek playhead to a 0-based bar. Continues playback from the new position if already playing. */
+  const onSeekBar = useCallback(
+    async (barZero: number) => {
+      const bar = Math.max(0, Math.floor(barZero));
+      const engine = ensureEngine();
+      const wasPlaying = engine.isPlaying();
+      if (wasPlaying) {
+        engine.pause();
+      }
+      setTransport((t) => ({ ...t, playing: false, bar: bar + 1, beat: 0 }));
+      if (!wasPlaying || clipsRef.current.length === 0) return;
+      setPlayHint("");
+      await engine.play({
+        bpm,
+        startBar: bar,
+        clips: clipsRef.current,
+        tracks: tracksRef.current,
+        onBar: (b, beat) => {
+          setTransport((t) => ({ ...t, playing: true, bar: b, beat }));
+        },
+      });
+      setTransport((t) => ({ ...t, playing: true, bar: bar + 1, beat: 0 }));
+    },
+    [bpm],
+  );
+
   const onRecord = () => {
     const armed = tracks.find((t) => t.id === selectedTrackId) ?? vocalTrack;
     if (armed) setSelectedTrackId(armed.id);
@@ -513,6 +551,8 @@ export function Studio() {
   };
   onPlayRef.current = () => void onPlay();
   onRecordRef.current = onRecord;
+  onStopRef.current = onStop;
+  onSeekBarRef.current = (bar) => void onSeekBar(bar);
   undoRef.current = undo;
   redoRef.current = redo;
   // MIDI keyboard input — map QWERTY keys to piano roll notes
@@ -885,9 +925,9 @@ export function Studio() {
     const clip: StudioClip = {
       id: `clip-piano-${Date.now()}`,
       trackId,
-      sessionId: sessionIdRef.current ?? sessionId ?? "",
+      sessionId: sessionIdRef.current ?? "",
       recordingId: "",
-      name: `Piano Clip ${tracks.length + 1}`,
+      name: `Piano Clip ${tracksRef.current.length + 1}`,
       startBar,
       durationSec,
       color: track?.color ?? "#3dd68c",
@@ -895,12 +935,12 @@ export function Studio() {
       midiNotes,
     };
     setClips((prev) => [...prev, clip]);
-    // Pre-load the clip in the engine so renderMix can find it
-    void ensureEngine().then((e) => e.preload([clip]));
-  }, []);
+    void ensureEngine().preload([clip]);
+  }, [pushHistory]);
 
   const onRecordingComplete = async (file: RecordingFile, sessionId: string, durationHint?: number) => {
-    const trackId = selectedTrackId || vocalTrack?.id || "4";
+    const trackId = selectedTrackId || vocalTrack?.id || tracksRef.current[0]?.id;
+    if (!trackId) return;
     const startBar = liveStartRef.current?.bar ?? Math.max(0, transport.bar - 1);
     liveStartRef.current = null;
     setClips((prev) => prev.filter((c) => c.id !== LIVE_CLIP_ID));
@@ -1280,6 +1320,7 @@ export function Studio() {
                   pushHistory("color");
                   onUpdateTrack(trackId, { color });
                 }}
+                onSeek={(bar) => void onSeekBar(bar)}
               />
             ) : (
               <TimelineView
@@ -1295,6 +1336,7 @@ export function Studio() {
                 onFileDrop={(trackId, file) => void onTrackFileDrop(trackId, file)}
                 onSelectClip={setSelectedClipId}
                 selectedClipId={selectedClipId}
+                onSeek={(bar) => void onSeekBar(bar)}
               />
             )}
           </div>

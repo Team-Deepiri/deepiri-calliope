@@ -12,12 +12,12 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     category: "Transport",
     shortcuts: [
       { keys: "Space", description: "Play / Pause" },
-      { keys: "Shift + Space", description: "Stop" },
+      { keys: "Shift + Space", description: "Stop (return to start)" },
+      { keys: "Home", description: "Return to start" },
+      { keys: "← / →", description: "Seek one bar back / forward" },
+      { keys: "Click ruler", description: "Seek playhead to bar" },
       { keys: "R", description: "Toggle Record" },
-      { keys: "L", description: "Toggle Loop" },
       { keys: "M", description: "Toggle Metronome" },
-      { keys: "Numpad 0", description: "Return to Start" },
-      { keys: "Numpad .", description: "Jump to End" },
     ],
   },
   {

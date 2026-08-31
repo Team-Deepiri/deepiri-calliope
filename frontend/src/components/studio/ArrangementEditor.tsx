@@ -65,6 +65,8 @@ interface ArrangementEditorProps {
   onRenameClip?: (clipId: string, name: string) => void;
   onRenderClip?: (clipId: string) => void;
   onTrackColorChange?: (trackId: string, color: string) => void;
+  /** Seek playhead to a 0-based bar (ruler click). */
+  onSeek?: (bar: number) => void;
 }
 
 const SECTION_ICONS: Record<string, typeof Sun> = {
@@ -82,10 +84,13 @@ function getSectionIcon(name: string) {
   return Icon;
 }
 
+const TRACK_HEADER_W = 128; // matches w-32 track column
+
 export function ArrangementEditor({
   tracks, clips, sections, isPlaying, currentPosition,
   zoom, getPlayheadBar, onZoomChange, onClipMove, onClipResize, onSectionChange,
   onDeleteClip, onDuplicateClip, onSplitClip, onRenameClip, onRenderClip, onTrackColorChange,
+  onSeek,
 }: ArrangementEditorProps) {
   const rulerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -151,11 +156,12 @@ export function ArrangementEditor({
 
   const handleRulerClick = useCallback((e: React.MouseEvent) => {
     const rect = rulerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = e.clientX - rect.left;
-    const bar = Math.floor(x / barWidth);
-    console.log("Seek to bar:", bar);
-  }, [barWidth]);
+    if (!rect || !onSeek) return;
+    const x = e.clientX - rect.left - TRACK_HEADER_W;
+    if (x < 0) return;
+    const bar = Math.max(0, Math.min(MAX_BARS - 1, Math.floor(x / barWidth)));
+    onSeek(bar);
+  }, [barWidth, onSeek]);
 
   const handleClipPointerDown = useCallback((clip: ArrangementClip, e: React.PointerEvent) => {
     e.stopPropagation();
@@ -349,11 +355,12 @@ export function ArrangementEditor({
         </div>
       </div>
 
-      {/* Time ruler */}
+      {/* Time ruler — click to seek */}
       <div
         ref={rulerRef}
         className="time-ruler flex h-7 bg-gray-900 border-b border-gray-800 cursor-pointer sticky top-0 z-10"
         onClick={handleRulerClick}
+        title="Click to seek"
       >
         <div className="w-32 shrink-0 border-r border-gray-800 flex items-center px-3">
           <span className="text-[8px] font-bold text-gray-600 uppercase">Track</span>
