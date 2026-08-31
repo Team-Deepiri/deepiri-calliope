@@ -277,6 +277,15 @@ export async function processRecording(
 /** Autotune + dry-rap vocal chain; registers a new take in the session for timeline playback. */
 export type RapStyle = "hard_tune" | "melodic_rap" | "natural";
 
+export type BeatStyle =
+  | "hiphop"
+  | "trap"
+  | "boom_bap"
+  | "house"
+  | "garage"
+  | "lofi"
+  | "breakbeat";
+
 export type CommitRapTakeResult = {
   recording_id: string;
   session_id: string;
@@ -329,12 +338,12 @@ export async function commitRapTake(
 export async function fetchGeneratedDrumsBlob(
   bpm: number,
   durationBars = 16,
-  genre = "hiphop",
+  genre: BeatStyle = "hiphop",
 ): Promise<Blob> {
   const gen = await fetch(`${base}/v1/ai-generate/drums`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: "trap beat", bpm, duration: durationBars, genre }),
+    body: JSON.stringify({ prompt: `${genre} beat`, bpm, duration: durationBars, genre }),
   });
   if (!gen.ok) throw new Error(await gen.text());
   const dl = await fetch(`${base}/v1/ai-generate/download/drums`);

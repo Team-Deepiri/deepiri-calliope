@@ -11,6 +11,7 @@ import {
   fetchGeneratedDrumsBlob,
   type CommitRapTakeResult,
   type RapStyle,
+  type BeatStyle,
   type AamatiComposeResult,
   type GenerateDepth,
   type RouterProvider,
@@ -84,6 +85,16 @@ type StudioClip = EngineClip & {
 };
 
 const LIVE_CLIP_ID = "clip-live-recording";
+
+const BEAT_STYLE_LABELS: Record<BeatStyle, string> = {
+  hiphop: "Hip-hop",
+  trap: "Trap",
+  boom_bap: "Boom bap",
+  house: "House",
+  garage: "UK garage",
+  lofi: "Lo-fi",
+  breakbeat: "Breakbeat",
+};
 const STORAGE_KEY = "calliope.project.v1";
 
 type ProjectSnapshot = {
@@ -127,6 +138,7 @@ export function Studio() {
   const [rapPathStatus, setRapPathStatus] = useState<string | null>(null);
   const [rapStyle, setRapStyle] = useState<RapStyle>("melodic_rap");
   const [rapTempoMode, setRapTempoMode] = useState<RapTempoMode>("auto");
+  const [rapBeatStyle, setRapBeatStyle] = useState<BeatStyle>("hiphop");
   const importInputRef = useRef<HTMLInputElement>(null);
   const liveGrowRef = useRef<number | null>(null);
   const liveStartRef = useRef<{ bar: number; atMs: number } | null>(null);
@@ -457,6 +469,7 @@ export function Studio() {
         recordingId: sel.recordingId,
         sessionId: sel.sessionId,
         trackId: sel.trackId,
+        startBar: sel.startBar,
         label: sel.name,
       };
     }
@@ -467,6 +480,7 @@ export function Studio() {
         recordingId: lastRecordingFile.id,
         sessionId: lastRecordingFile.sessionId,
         trackId: clip?.trackId ?? vocalTrack?.id,
+        startBar: clip?.startBar ?? 0,
         label: clip?.name ?? "Last recording",
       };
     }
@@ -482,6 +496,7 @@ export function Studio() {
         recordingId: vocalClip.recordingId,
         sessionId: vocalClip.sessionId,
         trackId: vocalClip.trackId,
+        startBar: vocalClip.startBar,
         label: vocalClip.name,
       };
     }
@@ -924,7 +939,7 @@ export function Studio() {
         },
         target.sessionId,
         trackId,
-        0,
+        target.startBar ?? 0,
         result.duration_sec,
       );
     }
@@ -933,30 +948,35 @@ export function Studio() {
   }, [rapTakeTarget, rapStyle, rapTempoMode, bpm, replaceClipAudio, placeClipFromFile, vocalTrack?.id]);
 
   const addBeatToTimeline = useCallback(
-    async (opts?: { bpm?: number; durationSec?: number }) => {
+    async (opts?: { bpm?: number; durationSec?: number; startBar?: number; genre?: BeatStyle }) => {
       const useBpm = opts?.bpm ?? bpm;
+      const startBar = Math.max(0, opts?.startBar ?? 0);
+      const genre = opts?.genre ?? rapBeatStyle;
       const barSec = (60 / useBpm) * 4;
       const durationBars = opts?.durationSec
         ? Math.max(4, Math.min(64, Math.ceil(opts.durationSec / barSec)))
         : 16;
-      const blob = await fetchGeneratedDrumsBlob(useBpm, durationBars, "hiphop");
+      const blob = await fetchGeneratedDrumsBlob(useBpm, durationBars, genre);
       if (!sessionIdRef.current) {
         const s = await createRecordingSession(`Session ${new Date().toLocaleTimeString()}`);
         sessionIdRef.current = s.id;
       }
       const sessionId = sessionIdRef.current!;
-      const file = new File([blob], "beat.wav", { type: "audio/wav" });
+      const beatLabel = BEAT_STYLE_LABELS[genre] ?? genre;
+      const file = new File([blob], `${genre}-beat.wav`, { type: "audio/wav" });
       const drumsTrack = tracksRef.current.find((t) => t.type === "drum") ?? tracksRef.current[0];
       if (!drumsTrack) throw new Error("No drums track");
       const result = await uploadRecordingFile(sessionId, file, "drum");
       const durationSec = result.duration_sec > 0 ? result.duration_sec : durationBars * barSec;
       pushHistory("beat");
-      setClips((prev) => prev.filter((c) => !(c.trackId === drumsTrack.id && c.startBar === 0)));
+      setClips((prev) =>
+        prev.filter((c) => !(c.trackId === drumsTrack.id && c.startBar === startBar)),
+      );
       placeClipFromFile(
         {
           id: result.recording_id,
           filename: result.filename,
-          original_name: "beat.wav",
+          original_name: `${beatLabel} beat.wav`,
           format: "wav",
           duration_sec: durationSec,
           track_type: "drum",
@@ -964,11 +984,12 @@ export function Studio() {
         },
         sessionId,
         drumsTrack.id,
-        0,
+        startBar,
         durationSec,
       );
+      return { startBar, genre: beatLabel, durationSec };
     },
-    [bpm, placeClipFromFile, pushHistory],
+    [bpm, rapBeatStyle, placeClipFromFile, pushHistory],
   );
 
   const onMakeRapTake = useCallback(async () => {
@@ -999,15 +1020,16 @@ export function Studio() {
     setRapPathBusy(true);
     setRapPathStatus(null);
     try {
-      await addBeatToTimeline();
-      setPlayHint("Beat on Drums — play the timeline and Export when ready.");
-      setRapPathStatus("Beat placed on Drums track.");
+      const startBar = Math.max(0, transport.bar - 1);
+      const placed = await addBeatToTimeline({ startBar, genre: rapBeatStyle });
+      setPlayHint(`Beat on Drums at bar ${(placed?.startBar ?? startBar) + 1} — play and Export when ready.`);
+      setRapPathStatus(`${BEAT_STYLE_LABELS[rapBeatStyle]} beat at bar ${(placed?.startBar ?? startBar) + 1}.`);
     } catch (e) {
       setRapPathStatus(e instanceof Error ? e.message : String(e));
     } finally {
       setRapPathBusy(false);
     }
-  }, [addBeatToTimeline]);
+  }, [addBeatToTimeline, rapBeatStyle, transport.bar]);
 
   const onMakeRapSong = useCallback(async () => {
     setRapPathBusy(true);
@@ -1021,7 +1043,13 @@ export function Studio() {
           ? Math.round(Math.min(200, Math.max(60, result.applied_bpm)))
           : bpm;
       if (applied !== bpm) setBpm(applied);
-      await addBeatToTimeline({ bpm: applied, durationSec: result.duration_sec });
+      const beatStartBar = rapTakeTarget?.startBar ?? 0;
+      const placed = await addBeatToTimeline({
+        bpm: applied,
+        durationSec: result.duration_sec,
+        startBar: beatStartBar,
+        genre: rapBeatStyle,
+      });
       const confNote =
         result.detected_bpm != null
           ? conf > 0.25
@@ -1033,9 +1061,10 @@ export function Studio() {
         result.trimmed_leading_sec && result.trimmed_leading_sec > 0.05
           ? `, trimmed ${result.trimmed_leading_sec.toFixed(2)}s lead-in`
           : "";
-      setPlayHint(`Rap song ready at ${applied} BPM — play the timeline and Export.`);
+      const barNote = (placed?.startBar ?? beatStartBar) + 1;
+      setPlayHint(`Rap song ready at ${applied} BPM, bar ${barNote} — play the timeline and Export.`);
       setRapPathStatus(
-        `Autotuned vocal + beat at ${applied} BPM (${confNote}${stretchNote}${trimNote}).`,
+        `${BEAT_STYLE_LABELS[rapBeatStyle]} beat + vocal at bar ${barNote} (${confNote}${stretchNote}${trimNote}).`,
       );
     } catch (e) {
       setRapPathStatus(e instanceof Error ? e.message : String(e));
@@ -1045,7 +1074,7 @@ export function Studio() {
     } finally {
       setRapPathBusy(false);
     }
-  }, [processRapTake, addBeatToTimeline, bpm]);
+  }, [processRapTake, addBeatToTimeline, bpm, rapBeatStyle, rapTakeTarget?.startBar]);
 
   // Gestures → Studio: place the conducted take on an audio track at bar 1
   useEffect(() => {
@@ -1595,14 +1624,18 @@ export function Studio() {
               <>
                 <RapSongPathPanel
                   targetLabel={rapTakeTarget?.label ?? null}
+                  targetStartBar={rapTakeTarget?.startBar ?? null}
                   canProcess={rapTakeTarget != null}
                   busy={rapPathBusy}
                   status={rapPathStatus}
                   style={rapStyle}
                   onStyleChange={setRapStyle}
+                  beatStyle={rapBeatStyle}
+                  onBeatStyleChange={setRapBeatStyle}
                   tempoMode={rapTempoMode}
                   onTempoModeChange={setRapTempoMode}
                   studioBpm={Math.round(bpm)}
+                  playheadBar={transport.bar}
                   metronomeOn={metronomeOn}
                   onToggleMetronome={onToggleMetronome}
                   onMakeRapSong={() => void onMakeRapSong()}
