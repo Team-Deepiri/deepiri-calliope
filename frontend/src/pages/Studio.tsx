@@ -644,6 +644,20 @@ export function Studio() {
   );
   deleteClipRef.current = onDeleteClip;
 
+  const onClipMove = useCallback(
+    (clipId: string, newTrackId: string, newStartBar: number) => {
+      pushHistory("clip-move");
+      setClips((prev) =>
+        prev.map((c) =>
+          c.id === clipId ? { ...c, trackId: newTrackId, startBar: Math.max(0, newStartBar) } : c,
+        ),
+      );
+      setSelectedClipId(clipId);
+      setSelectedTrackId(newTrackId);
+    },
+    [pushHistory],
+  );
+
   const onRenameTrackName = useCallback(
     (trackId: string, name: string) => onUpdateTrack(trackId, { name }),
     [onUpdateTrack],
@@ -1431,7 +1445,7 @@ export function Studio() {
           <div className="daw-arrange">
             {viewMode === "edit" && (
               <p className="daw-arrange__hint">
-                Clip edit — same timeline as Arrange, plus automation below. Drag is easiest in Arrange; use this when you want volume automation.
+                Clip edit — same timeline as Arrange, plus automation below. Drag clips to move them; use this view for volume automation.
               </p>
             )}
             <TimelineView
@@ -1448,6 +1462,7 @@ export function Studio() {
               onSelectClip={setSelectedClipId}
               selectedClipId={selectedClipId}
               onSeek={(bar) => void onSeekBar(bar)}
+              onClipMove={onClipMove}
             />
           </div>
 

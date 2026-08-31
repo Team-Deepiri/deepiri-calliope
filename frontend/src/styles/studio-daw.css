@@ -1635,6 +1635,24 @@
   filter: brightness(0.96);
 }
 
+.daw-timeline__clip--audio.is-dragging {
+  cursor: grabbing;
+  filter: brightness(1.1);
+  user-select: none;
+  box-shadow:
+    inset 0 -10px 14px -12px rgba(0, 0, 0, 0.55),
+    0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.daw-timeline__clip--audio.is-ghost {
+  opacity: 0.55;
+  outline: 1px dashed rgba(255, 255, 255, 0.45);
+}
+
+.daw-timeline__lane.is-drop-target {
+  background: rgba(107, 159, 255, 0.06);
+}
+
 .daw-clip-name {
   position: absolute;
   top: 2px;
