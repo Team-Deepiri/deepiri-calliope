@@ -427,6 +427,59 @@
   flex-direction: column;
 }
 
+.daw-arrange__hint {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--daw-muted);
+  background: var(--daw-bg-elevated);
+  border-bottom: 1px solid var(--daw-border-subtle);
+}
+
+.daw-arrange__hint-link {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--daw-accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.daw-arrangement-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--daw-bg);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.daw-arrangement-editor .timeline-area,
+.daw-arrangement-editor__lanes {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+
+.daw-arrangement-editor .clip-lane {
+  overflow: hidden;
+}
+
+.daw-arrangement-editor .clip-block {
+  max-height: 100%;
+  overflow: hidden;
+}
+
 .daw-automation {
   flex-shrink: 0;
   border-top: 1px solid var(--daw-border-subtle);

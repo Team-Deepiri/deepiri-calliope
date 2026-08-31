@@ -303,7 +303,7 @@ export function ArrangementEditor({
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="arrangement-editor bg-gray-950 rounded-2xl border border-gray-800 shadow-2xl overflow-hidden"
+      className="arrangement-editor daw-arrangement-editor"
     >
       {/* Minimap overview */}
       <div className="minimap h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 gap-0.5">

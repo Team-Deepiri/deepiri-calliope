@@ -1446,6 +1446,7 @@ export function Studio() {
             type="button"
             className={`daw-toolbar__mode${viewMode === "arrange" ? " is-active" : ""}`}
             onClick={() => setViewMode("arrange")}
+            title="Timeline overview — drop clips, seek, play"
           >
             Arrange
           </button>
@@ -1453,8 +1454,9 @@ export function Studio() {
             type="button"
             className={`daw-toolbar__mode${viewMode === "edit" ? " is-active" : ""}`}
             onClick={() => setViewMode("edit")}
+            title="Clip editor — drag, resize, rename, and automate clips"
           >
-            Edit
+            Clip edit
           </button>
         </div>
       </header>
@@ -1530,6 +1532,14 @@ export function Studio() {
         <div className="daw-center">
           <div className="daw-arrange">
             {viewMode === "edit" ? (
+              <>
+                <p className="daw-arrange__hint">
+                  Clip edit — drag clips between tracks, resize edges, double-click a clip for detail. Switch back to{" "}
+                  <button type="button" className="daw-arrange__hint-link" onClick={() => setViewMode("arrange")}>
+                    Arrange
+                  </button>{" "}
+                  for the simpler timeline.
+                </p>
               <ArrangementEditor
                 tracks={tracks.map((t) => ({ ...t, height: 72 }))}
                 clips={clips.map(
@@ -1564,6 +1574,7 @@ export function Studio() {
                 }}
                 onSeek={(bar) => void onSeekBar(bar)}
               />
+              </>
             ) : (
               <TimelineView
                 bpm={bpm}
