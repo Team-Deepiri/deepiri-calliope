@@ -93,7 +93,7 @@ def _synthesize_vocal_sync(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
         samples,
         sr,
         rack,
-        demo_tone_hz=None if samples else 220.0,
+        demo_hz=None if samples else 220.0,
         output_stereo=body.output_stereo,
     )
 

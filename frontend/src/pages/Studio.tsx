@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Cpu, Download, FilePlus2, FolderOpen, GitBranch, Keyboard, Mic, Music, Plus, Redo2, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, FilePlus2, FolderOpen, GitBranch, Keyboard, Mic, Music, Plus, Redo2, Undo2 } from "lucide-react";
 import {
   alignAamati,
   analyzeBrief,
@@ -106,6 +106,10 @@ export function Studio() {
   const [clips, setClips] = useState<StudioClip[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState("4");
   const [vocalDockOpen, setVocalDockOpen] = useState(true);
+  const [tracksOpen, setTracksOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [mixerOpen, setMixerOpen] = useState(true);
+  const [automationOpen, setAutomationOpen] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("vocal");
   const [viewMode, setViewMode] = useState<"arrange" | "edit">("arrange");
   const [pluginChain, setPluginChain] = useState<PluginInstance[]>([]);
@@ -1455,21 +1459,38 @@ export function Studio() {
         </div>
       </header>
 
-      <div className="daw__workspace">
-        <aside className="daw-tracks">
+      <div
+        className={`daw__workspace${tracksOpen ? "" : " is-tracks-collapsed"}${inspectorOpen ? "" : " is-inspector-collapsed"}`}
+      >
+        <aside className={`daw-tracks${tracksOpen ? "" : " is-collapsed"}`}>
           <div className="daw-tracks__head">
-            <span>Tracks</span>
-            <div style={{ display: "flex", gap: 2 }}>
-              <button type="button" className="daw-tracks__add" onClick={() => addTrack("audio")} title="Add audio track">
-                <Plus size={14} />
-                Audio
-              </button>
-              <button type="button" className="daw-tracks__add" onClick={() => addTrack("instrument")} title="Add instrument track" style={{ background: "var(--daw-accent)", color: "#fff" }}>
-                <Music size={14} />
-                MIDI
-              </button>
-            </div>
+            <button
+              type="button"
+              className="daw-tracks__collapse"
+              onClick={() => setTracksOpen((o) => !o)}
+              title={tracksOpen ? "Collapse tracks" : "Expand tracks"}
+              aria-expanded={tracksOpen}
+            >
+              {tracksOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+            </button>
+            {tracksOpen && (
+              <>
+                <span>Tracks</span>
+                <div className="daw-tracks__head-actions" style={{ display: "flex", gap: 2 }}>
+                  <button type="button" className="daw-tracks__add" onClick={() => addTrack("audio")} title="Add audio track">
+                    <Plus size={14} />
+                    Audio
+                  </button>
+                  <button type="button" className="daw-tracks__add" onClick={() => addTrack("instrument")} title="Add instrument track" style={{ background: "var(--daw-accent)", color: "#fff" }}>
+                    <Music size={14} />
+                    MIDI
+                  </button>
+                </div>
+              </>
+            )}
+            {!tracksOpen && <span>Tracks</span>}
           </div>
+          {tracksOpen && (
           <div className="daw-tracks__list">
             {tracks.map((track) => (
               <div
@@ -1503,6 +1524,7 @@ export function Studio() {
               </div>
             ))}
           </div>
+          )}
         </aside>
 
         <div className="daw-center">
@@ -1562,18 +1584,34 @@ export function Studio() {
           </div>
 
           {viewMode === "edit" && (
-            <div className="daw-automation">
-              <AutomationLane
-                track={{
-                  name: `${tracks.find((t) => t.id === selectedTrackId)?.name ?? "Track"} · volume`,
-                  points: selectedAutomation,
-                  min_value: 0,
-                  max_value: 1,
-                }}
-                onChange={onUpdateSelectedAutomation}
-                durationMs={durationBars * ((60 / bpm) * 4) * 1000}
-                height={150}
-              />
+            <div className={`daw-automation${automationOpen ? "" : " is-collapsed"}`}>
+              <div className="daw-automation__head">
+                <span>Automation</span>
+                <button
+                  type="button"
+                  className="daw-automation__collapse"
+                  onClick={() => setAutomationOpen((o) => !o)}
+                  title={automationOpen ? "Collapse automation" : "Expand automation"}
+                  aria-expanded={automationOpen}
+                >
+                  {automationOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                </button>
+              </div>
+              {automationOpen && (
+                <div className="daw-automation__body">
+                  <AutomationLane
+                    track={{
+                      name: `${tracks.find((t) => t.id === selectedTrackId)?.name ?? "Track"} · volume`,
+                      points: selectedAutomation,
+                      min_value: 0,
+                      max_value: 1,
+                    }}
+                    onChange={onUpdateSelectedAutomation}
+                    durationMs={durationBars * ((60 / bpm) * 4) * 1000}
+                    height={150}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -1606,8 +1644,25 @@ export function Studio() {
           </div>
         </div>
 
-        <aside className="daw-inspector">
+        <aside className={`daw-inspector${inspectorOpen ? "" : " is-collapsed"}`}>
+          <button
+            type="button"
+            className="daw-inspector__rail"
+            onClick={() => setInspectorOpen(true)}
+            title="Expand inspector"
+          >
+            Inspector
+          </button>
           <div className="daw-inspector__tabs">
+            <button
+              type="button"
+              className="daw-inspector__collapse"
+              onClick={() => setInspectorOpen(false)}
+              title="Collapse inspector"
+              aria-expanded={inspectorOpen}
+            >
+              <ChevronRight size={14} />
+            </button>
             {(
               [
                 ["vocal", "Vocal"],
@@ -1773,14 +1828,24 @@ export function Studio() {
                 seqPattern={seqPattern}
                 setSeqPattern={setSeqPattern}
                 transport={transport}
-                bpm={bpm}
               />
             )}
           </div>
         </aside>
       </div>
 
-      <div className="daw__mixer-wrap">
+      <div className={`daw__mixer-wrap${mixerOpen ? "" : " is-collapsed"}`}>
+        <button
+          type="button"
+          className="daw-mixer-collapse"
+          onClick={() => setMixerOpen((o) => !o)}
+          title={mixerOpen ? "Collapse mixer" : "Expand mixer"}
+          aria-expanded={mixerOpen}
+        >
+          {mixerOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </button>
+        {mixerOpen && (
+          <>
         <MixerConsole
           tracks={tracks}
           onUpdateTrack={onUpdateTrack}
@@ -1828,6 +1893,8 @@ export function Studio() {
             peak: 20 * Math.log10(Math.max(1e-4, meter.peak)),
           }}
         />
+          </>
+        )}
       </div>
 
       <ExportDialog

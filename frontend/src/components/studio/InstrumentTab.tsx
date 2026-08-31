@@ -3,6 +3,8 @@ import { PianoRoll, type PianoNote } from "./PianoRoll";
 import { StepSequencer } from "./StepSequencer";
 import { SynthEngine, getSharedSynthContext, type SynthConfig } from "../../audio/synthEngine";
 
+type StepCell = { active: boolean; velocity: number; ratchet: number };
+
 type Props = {
   synthConfig: SynthConfig;
   setSynthConfig: (fn: SynthConfig | ((prev: SynthConfig) => SynthConfig)) => void;
@@ -12,17 +14,16 @@ type Props = {
   seqPattern: {
     id: string;
     name: string;
-    steps: Record<string, { active: boolean; velocity: number; ratchet: number }[]>;
+    steps: Record<string, StepCell[]>;
     length: number;
   };
   setSeqPattern: (p: {
     id: string;
     name: string;
-    steps: Record<string, { active: boolean; velocity: number; ratchet: number }[]>;
+    steps: Record<string, StepCell[]>;
     length: number;
   }) => void;
   transport: { playing: boolean; bar: number; beat: number };
-  bpm: number;
 };
 
 export function InstrumentTab({
@@ -34,68 +35,58 @@ export function InstrumentTab({
   seqPattern,
   setSeqPattern,
   transport,
-  bpm,
 }: Props) {
   const [subTab, setSubTab] = useState<"piano" | "drums">("piano");
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <div
-        style={{
-          padding: "4px 8px",
-          background: "var(--daw-surface)",
-          borderBottom: "1px solid var(--daw-border)",
-          display: "flex",
-          gap: "6px",
-          alignItems: "center",
-        }}
-      >
-        <div style={{ display: "flex", gap: 2 }}>
+    <div className="daw-keys">
+      <div className="daw-keys__bar">
+        <div className="daw-keys__tabs" role="tablist" aria-label="Keys mode">
           {(["piano", "drums"] as const).map((t) => (
             <button
               key={t}
               type="button"
-              className="btn-icon"
-              style={{
-                background: subTab === t ? "var(--daw-accent)" : "transparent",
-                color: subTab === t ? "#fff" : "var(--daw-dim)",
-              }}
+              role="tab"
+              aria-selected={subTab === t}
+              className={`daw-keys__tab${subTab === t ? " is-active" : ""}`}
               onClick={() => setSubTab(t)}
             >
               {t === "piano" ? "Piano" : "Drums"}
             </button>
           ))}
         </div>
-        <select
-          value={synthConfig.waveform}
-          onChange={(e) => {
-            const next = { ...synthConfig, waveform: e.target.value as SynthConfig["waveform"] };
-            setSynthConfig(next);
-            synthRef.current?.updateConfig(next);
-          }}
-          style={{
-            fontSize: "0.6rem",
-            background: "var(--daw-bg)",
-            color: "var(--daw-text)",
-            border: "1px solid var(--daw-border)",
-            borderRadius: 3,
-            padding: "2px 4px",
-          }}
-        >
-          <option value="sawtooth">Saw</option>
-          <option value="sine">Sine</option>
-          <option value="square">Square</option>
-          <option value="triangle">Triangle</option>
-        </select>
+        {subTab === "piano" && (
+          <label className="daw-keys__synth">
+            <span>Synth</span>
+            <select
+              value={synthConfig.waveform}
+              onChange={(e) => {
+                const next = { ...synthConfig, waveform: e.target.value as SynthConfig["waveform"] };
+                setSynthConfig(next);
+                synthRef.current?.updateConfig(next);
+              }}
+            >
+              <option value="sawtooth">Saw</option>
+              <option value="sine">Sine</option>
+              <option value="square">Square</option>
+              <option value="triangle">Triangle</option>
+            </select>
+          </label>
+        )}
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <p className="daw-keys__coach">
+        {subTab === "piano"
+          ? "Click grid to draw · QWERTY plays the synth"
+          : "Click steps to toggle · Timeline drums come from clips / Add beat"}
+      </p>
+      <div className="daw-keys__body">
         {subTab === "piano" ? (
           <PianoRoll
             notes={pianoNotes}
             onChange={setPianoNotes}
             totalBars={8}
-            rootMidi={36}
-            octaveCount={5}
+            rootMidi={48}
+            octaveCount={3}
             onNotePreview={(midi, on) => {
               if (on) {
                 if (!synthRef.current) {
@@ -114,8 +105,6 @@ export function InstrumentTab({
             onPatternChange={setSeqPattern}
             isPlaying={transport.playing}
             currentStep={transport.beat}
-            bpm={bpm}
-            onBpmChange={() => {}}
           />
         )}
       </div>
