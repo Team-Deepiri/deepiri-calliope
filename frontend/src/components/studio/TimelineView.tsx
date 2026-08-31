@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 const BAR_W = 40;
 const WAVE_BUCKETS = 96;
@@ -35,6 +35,8 @@ type TimelineViewProps = {
   selectedClipId?: string | null;
   /** Seek playhead to a 0-based bar (ruler click). */
   onSeek?: (bar: number) => void;
+  /** Move a clip to a new start bar / track (0-based bar). */
+  onClipMove?: (clipId: string, newTrackId: string, newStartBar: number) => void;
 };
 
 export function ClipWaveform({
@@ -79,6 +81,15 @@ export function ClipWaveform({
   );
 }
 
+type DragState = {
+  clipId: string;
+  originStartBar: number;
+  originTrackId: string;
+  startClientX: number;
+  startClientY: number;
+  moved: boolean;
+};
+
 export function TimelineView({
   durationBars,
   sections,
@@ -92,11 +103,25 @@ export function TimelineView({
   onSelectClip,
   selectedClipId,
   onSeek,
+  onClipMove,
 }: TimelineViewProps) {
   const [dragOverTrack, setDragOverTrack] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<DragState | null>(null);
+  const [dragPreview, setDragPreview] = useState<{
+    clipId: string;
+    startBar: number;
+    trackId: string;
+  } | null>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
   const rulerRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const previewRef = useRef<typeof dragPreview>(null);
+  const suppressClickRef = useRef(false);
   const totalWidth = durationBars * BAR_W;
+
+  dragRef.current = dragging;
+  previewRef.current = dragPreview;
   const playheadLeft = Math.max(0, (playheadBar - 1) * BAR_W);
 
   // Buttery playhead: rAF-driven transform while playing (no per-frame React renders).
@@ -117,13 +142,98 @@ export function TimelineView({
   }, [isPlaying, getPlayheadBar]);
 
   const handleRulerClick = (e: MouseEvent) => {
-    if (!onSeek || !rulerRef.current) return;
+    if (!onSeek || !rulerRef.current || dragging) return;
     const rect = rulerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     if (x < 0) return;
     const bar = Math.max(0, Math.min(durationBars - 1, Math.floor(x / BAR_W)));
     onSeek(bar);
   };
+
+  const trackIdAtY = useCallback((clientY: number) => {
+    const grid = gridRef.current;
+    if (!grid) return null;
+    const lanes = grid.querySelectorAll<HTMLElement>("[data-track-id]");
+    for (const lane of lanes) {
+      const r = lane.getBoundingClientRect();
+      if (clientY >= r.top && clientY <= r.bottom) {
+        return lane.dataset.trackId ?? null;
+      }
+    }
+    return null;
+  }, []);
+
+  const finishDrag = useCallback(() => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const preview = previewRef.current;
+    if (drag.moved && preview && onClipMove) {
+      suppressClickRef.current = true;
+      if (preview.startBar !== drag.originStartBar || preview.trackId !== drag.originTrackId) {
+        onClipMove(drag.clipId, preview.trackId, preview.startBar);
+      }
+    } else if (!drag.moved) {
+      onSelectClip?.(drag.clipId);
+    }
+    setDragging(null);
+    setDragPreview(null);
+  }, [onClipMove, onSelectClip]);
+
+  useEffect(() => {
+    if (!dragging || !onClipMove) return;
+    const onMove = (e: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const dx = e.clientX - drag.startClientX;
+      const dy = e.clientY - drag.startClientY;
+      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+      if (!drag.moved) {
+        drag.moved = true;
+        setDragging({ ...drag, moved: true });
+      }
+      const barDelta = Math.round(dx / BAR_W);
+      const clip = clips.find((c) => c.id === drag.clipId);
+      const dur = clip?.durationBars ?? 1;
+      const maxStart = Math.max(0, durationBars - Math.max(0.25, dur));
+      const startBar = Math.max(0, Math.min(maxStart, drag.originStartBar + barDelta));
+      const trackId = trackIdAtY(e.clientY) ?? drag.originTrackId;
+      setDragPreview({ clipId: drag.clipId, startBar, trackId });
+    };
+    const onUp = () => finishDrag();
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [dragging, onClipMove, clips, durationBars, trackIdAtY, finishDrag]);
+
+  const onClipPointerDown = (clip: TimelineClip, e: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!onClipMove || e.button !== 0) {
+      onSelectClip?.(clip.id);
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    onSelectClip?.(clip.id);
+    const next: DragState = {
+      clipId: clip.id,
+      originStartBar: clip.startBar,
+      originTrackId: clip.trackId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      moved: false,
+    };
+    setDragging(next);
+    setDragPreview({ clipId: clip.id, startBar: clip.startBar, trackId: clip.trackId });
+  };
+
+  const clipLaneId = (clip: TimelineClip) =>
+    dragPreview?.clipId === clip.id ? dragPreview.trackId : clip.trackId;
+  const clipStartBar = (clip: TimelineClip) =>
+    dragPreview?.clipId === clip.id ? dragPreview.startBar : clip.startBar;
 
   return (
     <div className="daw-timeline" style={{ ["--daw-bar-w" as string]: `${BAR_W}px` }}>
@@ -144,15 +254,16 @@ export function TimelineView({
       </div>
 
       <div className="daw-timeline__scroll">
-        <div className="daw-timeline__grid" style={{ width: totalWidth, position: "relative" }}>
+        <div ref={gridRef} className="daw-timeline__grid" style={{ width: totalWidth, position: "relative" }}>
           {tracks.map((track) => {
-            const trackClips = clips.filter((c) => c.trackId === track.id);
+            const trackClips = clips.filter((c) => clipLaneId(c) === track.id);
             return (
               <div
                 key={track.id}
+                data-track-id={track.id}
                 className={`daw-timeline__lane${dragOverTrack === track.id ? " is-drag-over" : ""}${
                   selectedTrackId === track.id ? " is-selected" : ""
-                }`}
+                }${dragging?.moved && dragPreview?.trackId === track.id ? " is-drop-target" : ""}`}
                 onDragOver={(e) => {
                   e.preventDefault();
                   setDragOverTrack(track.id);
@@ -181,25 +292,40 @@ export function TimelineView({
                       {track.type === "vocal" ? "" : section.name}
                     </div>
                   ))}
-                  {trackClips.map((clip) => (
-                    <button
-                      key={clip.id}
-                      type="button"
-                      style={
-                        {
-                          left: clip.startBar * BAR_W,
-                          width: Math.max(BAR_W * 0.5, clip.durationBars * BAR_W),
-                          ["--daw-clip-color" as string]: clip.color,
-                        } as React.CSSProperties
-                      }
-                      title={`${clip.name} · ${clip.durationBars.toFixed(2)} bars`}
-                      onClick={() => onSelectClip?.(clip.id)}
-                      className={`daw-timeline__clip daw-timeline__clip--audio has-wave${selectedClipId === clip.id ? " is-selected" : ""}`}
-                    >
-                      <span className="daw-clip-name">{clip.name.replace(/\.[^.]+$/, "")}</span>
-                      <ClipWaveform peaks={clip.waveformPeaks} color={clip.color} />
-                    </button>
-                  ))}
+                  {trackClips.map((clip) => {
+                    const startBar = clipStartBar(clip);
+                    const isDragClip = dragging?.clipId === clip.id;
+                    return (
+                      <button
+                        key={clip.id}
+                        type="button"
+                        style={
+                          {
+                            left: startBar * BAR_W,
+                            width: Math.max(BAR_W * 0.5, clip.durationBars * BAR_W),
+                            ["--daw-clip-color" as string]: clip.color,
+                            cursor: onClipMove ? (isDragClip && dragging.moved ? "grabbing" : "grab") : "pointer",
+                            opacity: isDragClip && dragging.moved ? 0.92 : 1,
+                            zIndex: isDragClip ? 5 : undefined,
+                          } as React.CSSProperties
+                        }
+                        title={`${clip.name} · ${clip.durationBars.toFixed(2)} bars${onClipMove ? " · drag to move" : ""}`}
+                        onClick={(ev) => {
+                          if (suppressClickRef.current) {
+                            suppressClickRef.current = false;
+                            ev.preventDefault();
+                            return;
+                          }
+                          onSelectClip?.(clip.id);
+                        }}
+                        onPointerDown={(ev) => onClipPointerDown(clip, ev)}
+                        className={`daw-timeline__clip daw-timeline__clip--audio has-wave${selectedClipId === clip.id ? " is-selected" : ""}${isDragClip && dragging.moved ? " is-dragging" : ""}`}
+                      >
+                        <span className="daw-clip-name">{clip.name.replace(/\.[^.]+$/, "")}</span>
+                        <ClipWaveform peaks={clip.waveformPeaks} color={clip.color} />
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             );
