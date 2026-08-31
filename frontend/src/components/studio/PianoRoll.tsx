@@ -42,8 +42,8 @@ export function PianoRoll({
   const totalRows = octaveCount * 12;
   const stepsPerBar = 4;
   const totalCols = totalBars * stepsPerBar;
-  const rowHeight = 18;
-  const colWidth = 36 * zoom;
+  const rowHeight = 16;
+  const colWidth = 32 * zoom;
 
   const midiFromRow = useCallback(
     (row: number) => rootMidi + (totalRows - 1 - row),
@@ -120,10 +120,11 @@ export function PianoRoll({
             </button>
           </div>
           <span className="piano-roll-label">
-            <Music size={12} /> Piano Roll · {notes.length} notes
+            <Music size={12} /> {notes.length} notes
           </span>
         </div>
         <div className="piano-roll-toolbar__right">
+          <span className="piano-roll-zoom-label">Zoom</span>
           <input
             type="range"
             min={0.5}
@@ -132,6 +133,7 @@ export function PianoRoll({
             value={zoom}
             onChange={(e) => setZoom(parseFloat(e.target.value))}
             className="piano-roll-zoom"
+            aria-label="Zoom"
           />
           <span className="piano-roll-zoom-label">{zoom.toFixed(1)}×</span>
         </div>
