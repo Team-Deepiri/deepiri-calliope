@@ -37,7 +37,16 @@ type TimelineViewProps = {
   onSeek?: (bar: number) => void;
 };
 
-export function ClipWaveform({ peaks, color }: { peaks?: number[]; color: string }) {
+export function ClipWaveform({
+  peaks,
+  color,
+  contained = false,
+}: {
+  peaks?: number[];
+  color: string;
+  /** When true, fill parent without absolute positioning (safe inside arrangement clips). */
+  contained?: boolean;
+}) {
   if (!peaks || peaks.length === 0) return null;
   // Downsample to the display bucket count for crisp rendering at any width.
   const step = Math.max(1, Math.floor(peaks.length / WAVE_BUCKETS));
@@ -58,7 +67,7 @@ export function ClipWaveform({ peaks, color }: { peaks?: number[]; color: string
     .join(" ");
   return (
     <svg
-      className="daw-clip-wave"
+      className={contained ? "daw-clip-wave daw-clip-wave--contained" : "daw-clip-wave"}
       viewBox={`0 0 ${WAVE_BUCKETS} 1`}
       preserveAspectRatio="none"
       aria-hidden="true"

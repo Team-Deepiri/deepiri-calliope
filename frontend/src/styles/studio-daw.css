@@ -473,11 +473,44 @@
 
 .daw-arrangement-editor .clip-lane {
   overflow: hidden;
+  position: relative;
+  isolation: isolate;
 }
 
-.daw-arrangement-editor .clip-block {
-  max-height: 100%;
+.daw-arrange-clip {
+  position: absolute;
   overflow: hidden;
+  isolation: isolate;
+  contain: layout paint;
+  box-sizing: border-box;
+}
+
+.daw-arrange-clip__wave {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.7;
+  z-index: 0;
+}
+
+.daw-arrange-clip__meta {
+  position: relative;
+  z-index: 1;
+}
+
+.daw-clip-wave {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.daw-clip-wave--contained {
+  position: static;
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .daw-automation {
