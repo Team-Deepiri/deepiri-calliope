@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 const BAR_W = 40;
 const WAVE_BUCKETS = 96;
@@ -33,6 +33,8 @@ type TimelineViewProps = {
   onFileDrop?: (trackId: string, file: File) => void;
   onSelectClip?: (clipId: string) => void;
   selectedClipId?: string | null;
+  /** Seek playhead to a 0-based bar (ruler click). */
+  onSeek?: (bar: number) => void;
 };
 
 export function ClipWaveform({ peaks, color }: { peaks?: number[]; color: string }) {
@@ -80,9 +82,11 @@ export function TimelineView({
   onFileDrop,
   onSelectClip,
   selectedClipId,
+  onSeek,
 }: TimelineViewProps) {
   const [dragOverTrack, setDragOverTrack] = useState<string | null>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
+  const rulerRef = useRef<HTMLDivElement>(null);
   const totalWidth = durationBars * BAR_W;
   const playheadLeft = Math.max(0, (playheadBar - 1) * BAR_W);
 
@@ -103,10 +107,25 @@ export function TimelineView({
     return () => cancelAnimationFrame(raf);
   }, [isPlaying, getPlayheadBar]);
 
+  const handleRulerClick = (e: MouseEvent) => {
+    if (!onSeek || !rulerRef.current) return;
+    const rect = rulerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    if (x < 0) return;
+    const bar = Math.max(0, Math.min(durationBars - 1, Math.floor(x / BAR_W)));
+    onSeek(bar);
+  };
+
   return (
     <div className="daw-timeline" style={{ ["--daw-bar-w" as string]: `${BAR_W}px` }}>
       <div className="daw-timeline__ruler-wrap">
-        <div className="daw-timeline__ruler" style={{ width: totalWidth }}>
+        <div
+          ref={rulerRef}
+          className="daw-timeline__ruler"
+          style={{ width: totalWidth, cursor: onSeek ? "pointer" : undefined }}
+          onClick={handleRulerClick}
+          title={onSeek ? "Click to seek" : undefined}
+        >
           {Array.from({ length: durationBars }).map((_, i) => (
             <div key={i} className="daw-timeline__bar" style={{ width: BAR_W }}>
               {i % 4 === 0 ? i + 1 : ""}
