@@ -386,7 +386,7 @@ export function ArrangementEditor({
       {/* Timeline area */}
       <div
         ref={timelineRef}
-        className="timeline-area overflow-auto max-h-[600px] custom-scrollbar relative"
+        className="timeline-area daw-arrangement-editor__lanes custom-scrollbar relative"
         onPointerMove={handleTimelinePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
