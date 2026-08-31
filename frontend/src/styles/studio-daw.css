@@ -1231,6 +1231,13 @@
   color: var(--daw-dim);
 }
 
+.daw-vocal-ai__hint {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--daw-dim);
+}
+
 .daw-vocal-ai label {
   display: block;
   font-size: 0.65rem;

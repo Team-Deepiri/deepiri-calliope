@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from calliope.audio.io import AudioReadError, read_audio_file, write_audio_file
@@ -17,13 +18,14 @@ router = APIRouter(tags=["ai-vocal"])
 
 
 class AiVocalSynthesizeIn(BaseModel):
-    lyrics: str = Field("", description="Optional lyrics/prompt for context")
+    lyrics: str = Field("", description="Lyrics for formant SVS when no recording is given")
     voice_model: str = Field("tenor")
     tuning_strength: float = Field(0.8, ge=0, le=1)
     arrangement_style: str = Field("verse-chorus")
     vocal_style: str = Field("lead")
     genre_preset: str = Field("pop")
     genre_settings: dict[str, Any] = Field(default_factory=dict)
+    bpm: float | None = Field(None, ge=40, le=240)
     recording_id: str | None = Field(
         None,
         description="Existing recording to enhance. If provided, the server loads "
@@ -41,6 +43,10 @@ class AiVocalSynthesizeOut(BaseModel):
     sample_rate: int = 48_000
     duration_sec: float = 0
     output_file: str = ""
+    recording_id: str | None = None
+    session_id: str | None = None
+    filename: str = ""
+    source: str = "demo_tone"
     metrics: dict[str, Any] = Field(default_factory=dict)
     truncated: bool = False
 
@@ -67,28 +73,136 @@ def _load_recording_samples(session_id: str, recording_id: str) -> tuple[list[fl
         return None
 
 
+def _unit_to_percent(value: Any) -> int:
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return 50
+    if x <= 1.0:
+        x *= 100.0
+    return int(np.clip(round(x), 0, 100))
+
+
+def _rack_from_body(body: AiVocalSynthesizeIn) -> VocalRackIn:
+    rack_dict = body.rack.model_dump()
+    gs = body.genre_settings or {}
+    if "tuning" in gs:
+        rack_dict["tune_tightness"] = _unit_to_percent(gs["tuning"])
+    if "reverb" in gs:
+        rack_dict["room_send"] = _unit_to_percent(gs["reverb"])
+    if "compression" in gs:
+        rack_dict["punch_snap"] = _unit_to_percent(gs["compression"])
+    rack_dict["tune_tightness"] = _unit_to_percent(body.tuning_strength)
+    return VocalRackIn(**{k: v for k, v in rack_dict.items() if k in VocalRackIn.model_fields})
+
+
+def _preview_waveform(mono: np.ndarray, points: int = 2000) -> list[float]:
+    if mono.size == 0:
+        return []
+    n = min(points, int(mono.size))
+    if mono.size <= n:
+        return mono.astype(float).tolist()
+    edges = np.linspace(0, mono.size, n + 1).astype(int)
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        chunk = mono[edges[i] : edges[i + 1]]
+        if chunk.size == 0:
+            out[i] = 0.0
+            continue
+        peak = float(np.max(np.abs(chunk)))
+        out[i] = peak if float(chunk[chunk.size // 2]) >= 0 else -peak
+    return out.tolist()
+
+
+def _synthesize_from_lyrics(body: AiVocalSynthesizeIn) -> tuple[np.ndarray, dict[str, Any]]:
+    from calliope.audio.vocal_synth import AIVocalSynthesizer, lyric_tokens, melody_from_lyrics
+
+    melody = melody_from_lyrics(
+        body.lyrics,
+        voice_name=body.voice_model,
+        genre_preset=body.genre_preset,
+        arrangement_style=body.arrangement_style,
+        vocal_style=body.vocal_style,
+        bpm=body.bpm,
+    )
+    synth = AIVocalSynthesizer(sr=body.sample_rate)
+    raw = synth.synthesize(
+        body.lyrics,
+        melody,
+        voice_name=body.voice_model,
+        vocal_style=body.vocal_style,
+    )
+    return raw, {
+        "source": "lyrics_svs",
+        "syllables": len(lyric_tokens(body.lyrics)),
+        "notes": len(melody),
+        "voice_model": body.voice_model,
+        "genre_preset": body.genre_preset,
+        "arrangement_style": body.arrangement_style,
+        "vocal_style": body.vocal_style,
+    }
+
+
+def _write_output(
+    y: np.ndarray,
+    sr: int,
+    body: AiVocalSynthesizeIn,
+    source: str,
+) -> tuple[str, str | None, str]:
+    """Persist the full render. Prefer a session file so Studio can place a clip."""
+    if y.ndim == 2:
+        audio = y
+    else:
+        audio = y
+
+    if body.session_id:
+        try:
+            from calliope.routes.recordings import write_and_register_session_wav
+
+            label = "Generated vocal.wav" if source == "lyrics_svs" else "Enhanced vocal.wav"
+            meta = write_and_register_session_wav(
+                body.session_id,
+                audio,
+                sr,
+                original_name=label,
+                track_type="vocal",
+            )
+            rec_id = str(meta["id"])
+            url = f"/v1/recordings/sessions/{body.session_id}/files/{rec_id}/download"
+            return url, rec_id, str(meta.get("filename") or f"{rec_id}.wav")
+        except HTTPException:
+            pass
+
+    out_id = f"{body.recording_id or uuid4().hex[:8]}_{source}"
+    out_path = get_settings().recordings_path / "enhanced" / f"{out_id}.wav"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        write_audio_file(out_path, audio, sr, format="wav")
+    except (AudioReadError, OSError):
+        return "", None, ""
+    return f"/v1/recordings/enhanced/{out_id}.wav", None, f"{out_id}.wav"
+
+
 def _synthesize_vocal_sync(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
     """Blocking vocal synthesis — run via asyncio.to_thread from the route handler."""
     samples: list[float] = []
     sr = body.sample_rate
+    source = "demo_tone"
+    extra: dict[str, Any] = {}
 
     if body.recording_id and body.session_id:
         loaded = _load_recording_samples(body.session_id, body.recording_id)
         if loaded is not None:
             samples, sr = loaded
+            source = "recording"
 
-    rack_dict = body.rack.model_dump()
-    if body.genre_settings:
-        if "tuning" in body.genre_settings:
-            rack_dict["pitch_correction"] = body.genre_settings["tuning"]
-        if "reverb" in body.genre_settings:
-            rack_dict["reverb_amount"] = body.genre_settings["reverb"]
-        if "compression" in body.genre_settings:
-            rack_dict["compression"] = body.genre_settings["compression"]
-    rack_dict["pitch_correction"] = body.tuning_strength
+    if not samples and body.lyrics.strip():
+        raw, extra = _synthesize_from_lyrics(body)
+        samples = raw.tolist()
+        sr = body.sample_rate
+        source = "lyrics_svs"
 
-    rack = VocalRackIn(**{k: v for k, v in rack_dict.items() if k in VocalRackIn.model_fields})
-
+    rack = _rack_from_body(body)
     y, rep = process_voice_unit(
         samples,
         sr,
@@ -97,43 +211,37 @@ def _synthesize_vocal_sync(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
         output_stereo=body.output_stereo,
     )
 
-    max_len = body.max_return_samples
     if y.ndim == 2:
-        left, right = y[:, 0], y[:, 1]
+        mono = (y[:, 0] + y[:, 1]) / 2
     else:
-        left = right = y
-    truncated = left.size > max_len
-    left, right = left[:max_len], right[:max_len]
-    waveform = ((left + right) / 2).tolist() if left.size == right.size else left.tolist()
+        mono = y
 
-    out_id = f"{body.recording_id or 'demo'}_enhanced"
-    out_path = get_settings().recordings_path / "enhanced" / f"{out_id}.wav"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if body.output_stereo and y.ndim == 2:
-            out_audio = np.column_stack([left, right])
-        else:
-            out_audio = left
-        write_audio_file(out_path, out_audio, sr, format="wav")
-    except (AudioReadError, OSError):
-        pass
+    output_file, recording_id, filename = _write_output(y, sr, body, source)
+    max_len = body.max_return_samples
+    truncated = int(mono.size) > max_len
+    metrics = report_to_metrics(rep)
+    metrics.update(extra)
+    metrics["source"] = source
 
     return AiVocalSynthesizeOut(
-        waveform=waveform[:4000],
+        waveform=_preview_waveform(mono),
         sample_rate=sr,
-        duration_sec=round(len(waveform) / sr, 3) if sr else 0,
-        output_file=f"/v1/recordings/enhanced/{out_id}.wav",
-        metrics=report_to_metrics(rep),
+        duration_sec=round(float(mono.size) / sr, 3) if sr else 0,
+        output_file=output_file,
+        recording_id=recording_id,
+        session_id=body.session_id,
+        filename=filename,
+        source=source,
+        metrics=metrics,
         truncated=truncated,
     )
 
 
 @router.post("/v1/ai-vocal/synthesize", response_model=AiVocalSynthesizeOut)
 async def ai_vocal_synthesize(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
-    """Enhance a recorded vocal through the Calliope voice engine.
+    """Generate a sung vocal from lyrics, or enhance an existing recording.
 
-    If ``recording_id`` + ``session_id`` are provided the server attempts to
-    load the audio file from the recordings directory.  Otherwise a demo tone
-    is generated so the endpoint is always callable for testing.
+    Lyrics use the in-box formant SVS engine (not a neural singer). A recording
+    id still takes priority. The demo sine is only used when both are missing.
     """
     return await asyncio.to_thread(_synthesize_vocal_sync, body)

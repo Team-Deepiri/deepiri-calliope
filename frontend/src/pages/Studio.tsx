@@ -1695,7 +1695,22 @@ export function Studio() {
             )}
             {inspectorTab === "ai" && (
               <div className="daw-ai-tab">
-                <VocalAIPanel />
+                <VocalAIPanel
+                  bpm={bpm}
+                  resolveSessionId={async () => {
+                    if (!sessionIdRef.current) {
+                      const s = await createRecordingSession(`Session ${new Date().toLocaleTimeString()}`);
+                      sessionIdRef.current = s.id;
+                    }
+                    return sessionIdRef.current;
+                  }}
+                  onPlaceOnTimeline={(file, sid, durationSec) => {
+                    const trackId = vocalTrack?.id ?? selectedTrackId ?? tracks[0]?.id;
+                    if (!trackId) return;
+                    placeClipFromFile(file, sid, trackId, Math.max(0, getPlayheadBar() - 1), durationSec);
+                    setLastRecordingFile({ id: file.id, sessionId: sid });
+                  }}
+                />
                 <details className="daw-ai-tab__composer">
                   <summary>LLM Composer</summary>
                   <div className="daw-architect">

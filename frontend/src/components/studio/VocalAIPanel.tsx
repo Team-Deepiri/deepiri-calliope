@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef } from "react";
-import { Mic2, Sparkles, Send, Square, RotateCcw, Play } from "lucide-react";
+import { Mic2, Sparkles, Send, Square, RotateCcw, Play, Plus } from "lucide-react";
+import { synthesizeAiVocal, type AiVocalSynthesizeResult } from "../../api/client";
+import type { RecordingFile } from "../../types/audio";
 
 type ArrangementStyle = "verse-chorus" | "verse-chorus-bridge" | "through-composed" | "strophic" | "freeform";
 type VocalStyle = "lead" | "harmonies" | "ad-libs" | "choir";
@@ -8,13 +10,6 @@ type GenrePreset = "pop" | "rock" | "r&b" | "electronic" | "acoustic" | "hiphop"
 interface GenerationProgress {
   stage: string;
   percent: number;
-}
-
-interface VocalResult {
-  waveform: number[];
-  sample_rate: number;
-  duration_sec: number;
-  output_file: string;
 }
 
 const STYLE_LABELS: Record<ArrangementStyle, string> = {
@@ -42,62 +37,85 @@ const GENRE_PRESETS: Record<GenrePreset, { tuning: number; reverb: number; compr
   jazz: { tuning: 0.5, reverb: 0.3, compression: 0.3, eq_preset: "warm" },
 };
 
-export function VocalAIPanel() {
+const SOURCE_LABEL: Record<string, string> = {
+  lyrics_svs: "Formant SVS",
+  recording: "Enhanced take",
+  demo_tone: "Demo tone",
+};
+
+type Props = {
+  bpm?: number;
+  resolveSessionId?: () => Promise<string>;
+  onPlaceOnTimeline?: (file: RecordingFile, sessionId: string, durationSec: number) => void;
+};
+
+export function VocalAIPanel({ bpm, resolveSessionId, onPlaceOnTimeline }: Props) {
   const [lyrics, setLyrics] = useState("Floating through the neon sky, AI singing high");
   const [voice, setVoice] = useState("soprano");
   const [tuning, setTuning] = useState(0.8);
   const [generating, setGenerating] = useState(false);
-  const [cancelled, setCancelled] = useState(false);
   const [progress, setProgress] = useState<GenerationProgress>({ stage: "", percent: 0 });
-  const [result, setResult] = useState<VocalResult | null>(null);
+  const [result, setResult] = useState<AiVocalSynthesizeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [placed, setPlaced] = useState(false);
   const [arrangementStyle, setArrangementStyle] = useState<ArrangementStyle>("verse-chorus");
   const [vocalStyle, setVocalStyle] = useState<VocalStyle>("lead");
   const [genrePreset, setGenrePreset] = useState<GenrePreset>("pop");
   const abortRef = useRef<AbortController | null>(null);
 
+  const placeResult = useCallback(
+    (data: AiVocalSynthesizeResult) => {
+      if (!onPlaceOnTimeline || !data.recording_id || !data.session_id) return false;
+      onPlaceOnTimeline(
+        {
+          id: data.recording_id,
+          filename: data.filename || `${data.recording_id}.wav`,
+          original_name: "Generated vocal.wav",
+          format: "wav",
+          duration_sec: data.duration_sec,
+          track_type: "vocal",
+          uploaded_at: new Date().toISOString(),
+        },
+        data.session_id,
+        data.duration_sec,
+      );
+      return true;
+    },
+    [onPlaceOnTimeline],
+  );
+
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
-    setCancelled(false);
     setResult(null);
     setError(null);
+    setPlaced(false);
     abortRef.current = new AbortController();
-
     const preset = GENRE_PRESETS[genrePreset];
 
     try {
-      setProgress({ stage: "Analyzing prompt", percent: 10 });
-      await new Promise((r) => setTimeout(r, 300));
-      if (cancelled) return;
+      setProgress({ stage: "Building melody from lyrics", percent: 20 });
+      const sessionId = resolveSessionId ? await resolveSessionId() : undefined;
+      if (abortRef.current?.signal.aborted) return;
 
-      setProgress({ stage: "Generating vocal melody", percent: 25 });
-      await new Promise((r) => setTimeout(r, 500));
-
-      setProgress({ stage: "Synthesizing neural vocals", percent: 50 });
-      const response = await fetch("/v1/ai-vocal/synthesize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lyrics,
-          voice_model: voice,
-          tuning_strength: tuning,
-          arrangement_style: arrangementStyle,
-          vocal_style: vocalStyle,
-          genre_preset: genrePreset,
-          genre_settings: preset,
-        }),
-        signal: abortRef.current.signal,
+      setProgress({ stage: "Synthesizing sung vocal", percent: 45 });
+      const data = await synthesizeAiVocal({
+        lyrics,
+        voice_model: voice,
+        tuning_strength: tuning,
+        arrangement_style: arrangementStyle,
+        vocal_style: vocalStyle,
+        genre_preset: genrePreset,
+        genre_settings: preset,
+        bpm,
+        session_id: sessionId,
+        signal: abortRef.current?.signal,
       });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Generation failed");
-      }
+      if (abortRef.current?.signal.aborted) return;
 
-      setProgress({ stage: "Processing vocal chain", percent: 80 });
-      const data = await response.json();
-
-      setProgress({ stage: "Finalizing", percent: 100 });
+      setProgress({ stage: "Placing on timeline", percent: 90 });
       setResult(data);
+      if (placeResult(data)) setPlaced(true);
+      setProgress({ stage: "Done", percent: 100 });
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") {
         setError("Generation cancelled");
@@ -109,31 +127,35 @@ export function VocalAIPanel() {
       abortRef.current = null;
       setProgress({ stage: "", percent: 0 });
     }
-  }, [lyrics, voice, tuning, arrangementStyle, vocalStyle, genrePreset, cancelled]);
+  }, [lyrics, voice, tuning, arrangementStyle, vocalStyle, genrePreset, bpm, resolveSessionId, placeResult]);
 
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();
-    setCancelled(true);
   }, []);
 
   const handleReset = useCallback(() => {
     setResult(null);
     setError(null);
-    setCancelled(false);
+    setPlaced(false);
   }, []);
+
+  const previewUrl = result?.output_file || "";
 
   return (
     <div className="daw-vocal-ai">
       <div className="daw-vocal-ai__head">
         <Mic2 size={14} />
         <div>
-          <strong>AI Vocal Synthesis</strong>
-          <span>Neural SVS</span>
+          <strong>Generate vocal</strong>
+          <span>Lyrics → formant SVS</span>
         </div>
       </div>
+      <p className="daw-vocal-ai__hint">
+        Sings your lyrics with a formant voice (not a neural singer). Drops the clip on the Vocals track.
+      </p>
 
       <div>
-        <label>Lyrics / prompt</label>
+        <label>Lyrics</label>
         <textarea
           value={lyrics}
           onChange={(e) => setLyrics(e.target.value)}
@@ -145,11 +167,11 @@ export function VocalAIPanel() {
 
       <div className="daw-vocal-ai__row">
         <div>
-          <label>Voice model</label>
+          <label>Voice</label>
           <select value={voice} onChange={(e) => setVoice(e.target.value)} disabled={generating}>
             <option value="soprano">Soprano (Aura)</option>
             <option value="tenor">Tenor (Atlas)</option>
-            <option value="alt">Alt (Nova)</option>
+            <option value="alt">Alto (Nova)</option>
             <option value="bass">Bass (Titan)</option>
           </select>
         </div>
@@ -250,9 +272,10 @@ export function VocalAIPanel() {
         <div className="daw-vocal-ai__result">
           <div className="daw-vocal-ai__result-head">
             <Play size={12} />
-            <span>Generated vocal</span>
+            <span>{SOURCE_LABEL[result.source] || "Generated vocal"}</span>
             <span className="daw-vocal-ai__result-meta">
               {(result.duration_sec || 0).toFixed(1)}s
+              {placed ? " · on timeline" : ""}
             </span>
           </div>
           <div className="daw-vocal-ai__wave">
@@ -271,19 +294,29 @@ export function VocalAIPanel() {
             ) : null}
           </div>
           <div className="daw-vocal-ai__result-actions">
-            <a href={result.output_file} download>
-              Download
-            </a>
-            <button
-              type="button"
-              onClick={() => {
-                const audio = new Audio(result.output_file);
-                void audio.play();
-              }}
-            >
-              <Play size={12} />
-              Preview
-            </button>
+            {previewUrl ? (
+              <a href={previewUrl} download>
+                Download
+              </a>
+            ) : null}
+            {previewUrl ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const audio = new Audio(previewUrl);
+                  void audio.play();
+                }}
+              >
+                <Play size={12} />
+                Preview
+              </button>
+            ) : null}
+            {result.recording_id && result.session_id && onPlaceOnTimeline && !placed ? (
+              <button type="button" onClick={() => setPlaced(placeResult(result))}>
+                <Plus size={12} />
+                Drop on timeline
+              </button>
+            ) : null}
           </div>
         </div>
       )}

@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
+import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
@@ -161,6 +162,53 @@ def _get_session(session_id: str) -> dict:
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
+
+
+def write_and_register_session_wav(
+    session_id: str,
+    audio: np.ndarray,
+    sr: int,
+    original_name: str,
+    track_type: str = "vocal",
+) -> dict:
+    """Write a WAV into an existing session so Studio can load it as a clip."""
+    session = _get_session(session_id)
+    settings = get_settings()
+    new_id = str(uuid.uuid4())
+    filename = f"{new_id}.wav"
+    out_path = settings.recordings_path / session_id / filename
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        write_audio_file(out_path, audio, sr, format="wav")
+    except (AudioReadError, OSError) as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    try:
+        info = get_audio_info(out_path)
+        duration = float(info["duration_sec"])
+        sample_rate = int(info.get("sample_rate", sr))
+        channels = int(info.get("channels", 1 if audio.ndim == 1 else audio.shape[-1]))
+    except (AudioReadError, OSError, KeyError, TypeError, ValueError):
+        duration = float(audio.shape[0] / max(sr, 1))
+        sample_rate = sr
+        channels = 1 if audio.ndim == 1 else int(audio.shape[-1])
+
+    recording_meta = {
+        "id": new_id,
+        "filename": filename,
+        "original_name": original_name,
+        "format": "wav",
+        "path": str(out_path),
+        "duration_sec": duration,
+        "track_type": track_type,
+        "uploaded_at": datetime.utcnow(),
+        "sample_rate": sample_rate,
+        "channels": channels,
+    }
+    session["files"].append(recording_meta)
+    session["duration_sec"] = float(session.get("duration_sec") or 0) + duration
+    session["status"] = "active"
+    return recording_meta
 
 
 def _resolve_recording_path(session_id: str, file_id: str) -> Path | None:
