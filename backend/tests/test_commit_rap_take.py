@@ -46,6 +46,8 @@ async def test_commit_rap_take_registers_new_session_file():
         assert body["recording_id"] != source_id
         assert body["duration_sec"] > 0
         assert body["style"] == "hard_tune"
+        assert "stretched" in body
+        assert "applied_bpm" in body
 
         files = await c.get(f"/v1/recordings/sessions/{session_id}/files")
         assert files.status_code == 200

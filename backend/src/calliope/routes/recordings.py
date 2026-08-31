@@ -434,15 +434,49 @@ def _commit_rap_take_sync(session_id: str, body: CommitRapTakeRequest) -> Commit
     style = body.style if body.style in RAP_STYLE_RACK_TWEAKS else "melodic_rap"
     detected_bpm: float | None = None
     bpm_confidence = 0.0
+    prefer = float(body.target_bpm) if body.target_bpm else None
     try:
         from calliope.audio.beat_sync import TempoDetector
 
-        bpm_val, bpm_conf = TempoDetector(sr).detect_bpm(samples)
-        if bpm_conf > 0.15:
+        bpm_val, bpm_conf = TempoDetector(sr).detect_bpm(samples, prefer_bpm=prefer)
+        if bpm_conf > 0.12:
             detected_bpm = round(float(bpm_val), 1)
             bpm_confidence = float(bpm_conf)
     except (ImportError, ValueError, TypeError):
         pass
+
+    # Prefer confident detection; force_target_bpm locks the beat (and stretch) to session tempo.
+    if body.force_target_bpm and body.target_bpm:
+        applied_bpm = float(body.target_bpm)
+    elif detected_bpm is not None and bpm_confidence > 0.25:
+        applied_bpm = float(detected_bpm)
+        if body.target_bpm and abs(body.target_bpm - detected_bpm) / max(detected_bpm, 1.0) < 0.08:
+            applied_bpm = float(body.target_bpm)
+    elif body.target_bpm:
+        applied_bpm = float(body.target_bpm)
+    else:
+        applied_bpm = None
+
+    stretched = False
+    trimmed_leading_sec = 0.0
+    try:
+        from calliope.audio.beat_sync import stretch_to_tempo, trim_leading_silence
+
+        if body.trim_leading_silence:
+            before = len(samples)
+            samples = trim_leading_silence(samples, sr)
+            trimmed_leading_sec = round(max(0, before - len(samples)) / max(sr, 1), 3)
+
+        # Stretch only when we trust the source tempo estimate.
+        if (
+            body.snap_to_tempo
+            and detected_bpm is not None
+            and bpm_confidence > 0.25
+            and applied_bpm is not None
+        ):
+            samples, stretched = stretch_to_tempo(samples, sr, detected_bpm, applied_bpm)
+    except (ImportError, ValueError, TypeError, RuntimeError):
+        stretched = False
 
     # Production autotune when available; voice rack still applies pitch correction if this fails.
     try:
@@ -512,6 +546,9 @@ def _commit_rap_take_sync(session_id: str, body: CommitRapTakeRequest) -> Commit
         detected_bpm=detected_bpm,
         bpm_confidence=bpm_confidence,
         style=style,
+        applied_bpm=applied_bpm,
+        stretched=stretched,
+        trimmed_leading_sec=trimmed_leading_sec,
     )
 
 

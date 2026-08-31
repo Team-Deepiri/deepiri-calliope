@@ -1459,6 +1459,26 @@
   color: var(--daw-text);
 }
 
+.daw-rap-path__tip {
+  margin: 0;
+  font-size: 0.65rem;
+  line-height: 1.35;
+  color: var(--daw-dim);
+}
+
+.daw-rap-path__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+  color: var(--daw-muted);
+  cursor: pointer;
+}
+
+.daw-rap-path__check input {
+  margin-top: 0.15rem;
+}
+
 .daw-rap-path__style {
   display: flex;
   flex-direction: column;

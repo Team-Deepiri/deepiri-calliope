@@ -287,19 +287,34 @@ export type CommitRapTakeResult = {
   detected_bpm?: number | null;
   bpm_confidence?: number;
   style?: RapStyle;
+  applied_bpm?: number | null;
+  stretched?: boolean;
+  trimmed_leading_sec?: number;
+};
+
+export type CommitRapTakeOptions = {
+  vocalRack?: VocalRackPayload;
+  style?: RapStyle;
+  targetBpm?: number;
+  forceTargetBpm?: boolean;
+  snapToTempo?: boolean;
+  trimLeadingSilence?: boolean;
 };
 
 export async function commitRapTake(
   sessionId: string,
   sourceRecordingId: string,
-  vocalRack?: VocalRackPayload,
-  style: RapStyle = "melodic_rap",
+  opts: CommitRapTakeOptions = {},
 ): Promise<CommitRapTakeResult> {
   const body: Record<string, unknown> = {
     source_recording_id: sourceRecordingId,
-    style,
+    style: opts.style ?? "melodic_rap",
   };
-  if (vocalRack) body.vocal_rack = vocalRack;
+  if (opts.vocalRack) body.vocal_rack = opts.vocalRack;
+  if (opts.targetBpm != null) body.target_bpm = opts.targetBpm;
+  if (opts.forceTargetBpm != null) body.force_target_bpm = opts.forceTargetBpm;
+  if (opts.snapToTempo != null) body.snap_to_tempo = opts.snapToTempo;
+  if (opts.trimLeadingSilence != null) body.trim_leading_silence = opts.trimLeadingSilence;
 
   const r = await fetch(`${base}/v1/recordings/sessions/${sessionId}/commit-rap-take`, {
     method: "POST",

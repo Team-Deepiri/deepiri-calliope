@@ -7,6 +7,8 @@ const STYLE_OPTIONS: { value: RapStyle; label: string }[] = [
   { value: "natural", label: "Natural / light" },
 ];
 
+export type RapTempoMode = "auto" | "studio";
+
 type Props = {
   targetLabel: string | null;
   canProcess: boolean;
@@ -14,6 +16,11 @@ type Props = {
   status: string | null;
   style: RapStyle;
   onStyleChange: (style: RapStyle) => void;
+  tempoMode: RapTempoMode;
+  onTempoModeChange: (mode: RapTempoMode) => void;
+  studioBpm: number;
+  metronomeOn: boolean;
+  onToggleMetronome: () => void;
   onMakeRapSong: () => void;
   onMakeRapTake: () => void;
   onAddBeat: () => void;
@@ -26,6 +33,11 @@ export function RapSongPathPanel({
   status,
   style,
   onStyleChange,
+  tempoMode,
+  onTempoModeChange,
+  studioBpm,
+  metronomeOn,
+  onToggleMetronome,
   onMakeRapSong,
   onMakeRapTake,
   onAddBeat,
@@ -48,6 +60,9 @@ export function RapSongPathPanel({
           "Record or import a vocal, then process it here."
         )}
       </p>
+      <p className="daw-rap-path__tip">
+        Tip: turn on the metronome and rap to the click — detection and stretch work much better.
+      </p>
       <label className="daw-rap-path__style">
         <span>Autotune style</span>
         <select
@@ -61,6 +76,26 @@ export function RapSongPathPanel({
             </option>
           ))}
         </select>
+      </label>
+      <label className="daw-rap-path__style">
+        <span>Beat tempo</span>
+        <select
+          value={tempoMode}
+          disabled={busy}
+          onChange={(e) => onTempoModeChange(e.target.value as RapTempoMode)}
+        >
+          <option value="auto">Auto (match my take)</option>
+          <option value="studio">Lock to studio ({studioBpm} BPM)</option>
+        </select>
+      </label>
+      <label className="daw-rap-path__check">
+        <input
+          type="checkbox"
+          checked={metronomeOn}
+          disabled={busy}
+          onChange={onToggleMetronome}
+        />
+        <span>Metronome click while playing / recording</span>
       </label>
       <div className="daw-rap-path__actions">
         <button

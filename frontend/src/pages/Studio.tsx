@@ -29,7 +29,7 @@ import { AamatiSteerCard } from "../components/studio/AamatiSteerCard";
 import { StudioTransport, type TransportState } from "../components/studio/StudioTransport";
 import { TimelineView, type TimelineClip } from "../components/studio/TimelineView";
 import { VocalRackPanel } from "../components/studio/VocalRackPanel";
-import { RapSongPathPanel } from "../components/studio/RapSongPathPanel";
+import { RapSongPathPanel, type RapTempoMode } from "../components/studio/RapSongPathPanel";
 import { VoiceDspPanel } from "../components/studio/VoiceDspPanel";
 import { VocalAIPanel } from "../components/studio/VocalAIPanel";
 import {
@@ -126,6 +126,7 @@ export function Studio() {
   const [rapPathBusy, setRapPathBusy] = useState(false);
   const [rapPathStatus, setRapPathStatus] = useState<string | null>(null);
   const [rapStyle, setRapStyle] = useState<RapStyle>("melodic_rap");
+  const [rapTempoMode, setRapTempoMode] = useState<RapTempoMode>("auto");
   const importInputRef = useRef<HTMLInputElement>(null);
   const liveGrowRef = useRef<number | null>(null);
   const liveStartRef = useRef<{ bar: number; atMs: number } | null>(null);
@@ -891,7 +892,14 @@ export function Studio() {
     setRapPathStatus(null);
     const preset = VOCAL_PRESETS.dry_rap_punch;
     setVocalRack(preset);
-    const result = await commitRapTake(target.sessionId, target.recordingId, preset, rapStyle);
+    const result = await commitRapTake(target.sessionId, target.recordingId, {
+      vocalRack: preset,
+      style: rapStyle,
+      targetBpm: Math.round(bpm),
+      forceTargetBpm: rapTempoMode === "studio",
+      snapToTempo: true,
+      trimLeadingSilence: true,
+    });
     const name = `${target.label.replace(/\.[^.]+$/, "")} (autotuned).wav`;
     if (target.clipId) {
       await replaceClipAudio(
@@ -922,7 +930,7 @@ export function Studio() {
     }
     setLastRecordingFile({ id: result.recording_id, sessionId: target.sessionId });
     return result;
-  }, [rapTakeTarget, rapStyle, replaceClipAudio, placeClipFromFile, vocalTrack?.id]);
+  }, [rapTakeTarget, rapStyle, rapTempoMode, bpm, replaceClipAudio, placeClipFromFile, vocalTrack?.id]);
 
   const addBeatToTimeline = useCallback(
     async (opts?: { bpm?: number; durationSec?: number }) => {
@@ -967,9 +975,16 @@ export function Studio() {
     setRapPathBusy(true);
     setRapPathStatus(null);
     try {
-      await processRapTake();
+      const result = await processRapTake();
+      if (!result) return;
+      const conf = result.bpm_confidence ?? 0;
+      const det =
+        result.detected_bpm != null && conf > 0.12
+          ? ` Detected ~${Math.round(result.detected_bpm)} BPM${conf > 0.25 ? "" : " (low confidence)"}.`
+          : " Tempo unclear — use the metronome next time for a tighter match.";
+      const stretchNote = result.stretched ? " Vocal stretched to beat tempo." : "";
       setPlayHint("Autotuned rap take is on the timeline — hit Play, then Export.");
-      setRapPathStatus("Autotuned take ready on timeline.");
+      setRapPathStatus(`Autotuned take ready.${det}${stretchNote}`);
     } catch (e) {
       setRapPathStatus(e instanceof Error ? e.message : String(e));
       if (String(e).includes("404") || String(e).includes("Session not found")) {
@@ -1000,18 +1015,28 @@ export function Studio() {
     try {
       const result = await processRapTake();
       if (!result) return;
-      const detected = result.detected_bpm;
       const conf = result.bpm_confidence ?? 0;
-      const useBpm =
-        detected != null && conf > 0.25 ? Math.round(Math.min(200, Math.max(60, detected))) : bpm;
-      if (detected != null && conf > 0.25 && useBpm !== bpm) {
-        setBpm(useBpm);
-      }
-      await addBeatToTimeline({ bpm: useBpm, durationSec: result.duration_sec });
-      const bpmNote =
-        detected != null && conf > 0.25 ? ` at ~${useBpm} BPM` : "";
-      setPlayHint(`Rap song ready${bpmNote} — play the timeline and Export.`);
-      setRapPathStatus(`Autotuned vocal + matched beat on timeline${bpmNote}.`);
+      const applied =
+        result.applied_bpm != null
+          ? Math.round(Math.min(200, Math.max(60, result.applied_bpm)))
+          : bpm;
+      if (applied !== bpm) setBpm(applied);
+      await addBeatToTimeline({ bpm: applied, durationSec: result.duration_sec });
+      const confNote =
+        result.detected_bpm != null
+          ? conf > 0.25
+            ? `detected ~${Math.round(result.detected_bpm)}`
+            : `weak detect ~${Math.round(result.detected_bpm)}`
+          : "no detect";
+      const stretchNote = result.stretched ? ", vocal stretched" : "";
+      const trimNote =
+        result.trimmed_leading_sec && result.trimmed_leading_sec > 0.05
+          ? `, trimmed ${result.trimmed_leading_sec.toFixed(2)}s lead-in`
+          : "";
+      setPlayHint(`Rap song ready at ${applied} BPM — play the timeline and Export.`);
+      setRapPathStatus(
+        `Autotuned vocal + beat at ${applied} BPM (${confNote}${stretchNote}${trimNote}).`,
+      );
     } catch (e) {
       setRapPathStatus(e instanceof Error ? e.message : String(e));
       if (String(e).includes("404") || String(e).includes("Session not found")) {
@@ -1575,6 +1600,11 @@ export function Studio() {
                   status={rapPathStatus}
                   style={rapStyle}
                   onStyleChange={setRapStyle}
+                  tempoMode={rapTempoMode}
+                  onTempoModeChange={setRapTempoMode}
+                  studioBpm={Math.round(bpm)}
+                  metronomeOn={metronomeOn}
+                  onToggleMetronome={onToggleMetronome}
                   onMakeRapSong={() => void onMakeRapSong()}
                   onMakeRapTake={() => void onMakeRapTake()}
                   onAddBeat={() => void onAddBeat()}
