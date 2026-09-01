@@ -39,7 +39,7 @@ type TimelineViewProps = {
   onClipMove?: (clipId: string, newTrackId: string, newStartBar: number) => void;
 };
 
-export function ClipWaveform({
+function ClipWaveform({
   peaks,
   color,
   contained = false,
