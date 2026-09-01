@@ -38,8 +38,9 @@ const GENRE_PRESETS: Record<GenrePreset, { tuning: number; reverb: number; compr
 };
 
 const SOURCE_LABEL: Record<string, string> = {
-  lyrics_sts: "Sung vocal",
-  lyrics_svs: "Formant fallback",
+  lyrics_sts: "Piper vocal",
+  lyrics_svs: "DiffSinger",
+  lyrics_formant: "Formant fallback",
   recording: "Enhanced take",
   demo_tone: "Demo tone",
 };
@@ -148,11 +149,11 @@ export function VocalAIPanel({ bpm, resolveSessionId, onPlaceOnTimeline }: Props
         <Mic2 size={14} />
         <div>
           <strong>Generate vocal</strong>
-          <span>Lyrics → sung vocal</span>
+          <span>Lyrics → MLP melody + Piper</span>
         </div>
       </div>
       <p className="daw-vocal-ai__hint">
-        Local Piper voice with a gentle sung melody — not macOS say, not hard autotune.
+        A trained melody MLP writes the tune; Piper sings the words. DiffSinger stays off.
       </p>
 
       <div>

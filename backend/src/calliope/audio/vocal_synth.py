@@ -153,25 +153,40 @@ def melody_from_lyrics(
     idx = mid
     n_phrases = max(1, len(phrases))
     chorus_lift = 4 if arrangement_style in {"verse-chorus", "verse-chorus-bridge"} else 0
+    ml_midis = None
+    try:
+        from calliope.audio.vocal_melody_ml import ml_melody_midis
+
+        ml_midis = ml_melody_midis(
+            flat,
+            genre_preset=genre_preset,
+            arrangement_style=arrangement_style,
+            voice_name=voice_name,
+        )
+    except (OSError, ValueError, KeyError):
+        ml_midis = None
 
     for i, (_tok, phrase_idx, phrase_end) in enumerate(flat):
         if density < 1.0 and i % 3 == 1:
             t += eighth
             continue
-        step = 1 if (i % 4) in (0, 1) else -1
-        if i % 7 == 0:
-            step = 2
-        idx = int(np.clip(idx + step, 0, len(pool) - 1))
-        midi = pool[idx]
-        # Chorus / later phrases sit higher in the voice.
-        section_lift = 0
-        if arrangement_style == "verse-chorus" and phrase_idx >= max(1, n_phrases // 2):
-            section_lift = chorus_lift
-        elif arrangement_style == "verse-chorus-bridge" and phrase_idx >= n_phrases - 1:
-            section_lift = 2
-        elif arrangement_style == "through-composed":
-            section_lift = min(7, phrase_idx)
-        midi = _clamp_midi(midi + section_lift, lo, hi)
+        if ml_midis is not None and i < len(ml_midis):
+            midi = ml_midis[i]
+        else:
+            step = 1 if (i % 4) in (0, 1) else -1
+            if i % 7 == 0:
+                step = 2
+            idx = int(np.clip(idx + step, 0, len(pool) - 1))
+            midi = pool[idx]
+            # Chorus / later phrases sit higher in the voice.
+            section_lift = 0
+            if arrangement_style == "verse-chorus" and phrase_idx >= max(1, n_phrases // 2):
+                section_lift = chorus_lift
+            elif arrangement_style == "verse-chorus-bridge" and phrase_idx >= n_phrases - 1:
+                section_lift = 2
+            elif arrangement_style == "through-composed":
+                section_lift = min(7, phrase_idx)
+            midi = _clamp_midi(midi + section_lift, lo, hi)
         dur = eighth * (2.0 if phrase_end else 1.0)
         if vocal_style == "ad-libs":
             dur *= 0.7

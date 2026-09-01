@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -116,6 +117,8 @@ def _preview_waveform(mono: np.ndarray, points: int = 2000) -> list[float]:
 
 def _synthesize_from_lyrics(body: AiVocalSynthesizeIn) -> tuple[np.ndarray, dict[str, Any]]:
     from calliope.audio.speech_to_singing import synthesize_speech_to_singing
+    from calliope.audio.svs_diffsinger import synthesize_diffsinger
+    from calliope.audio.vocal_melody_ml import melody_model_id
     from calliope.audio.vocal_synth import AIVocalSynthesizer, lyric_tokens, melody_from_lyrics
 
     melody = melody_from_lyrics(
@@ -133,7 +136,22 @@ def _synthesize_from_lyrics(body: AiVocalSynthesizeIn) -> tuple[np.ndarray, dict
         "genre_preset": body.genre_preset,
         "arrangement_style": body.arrangement_style,
         "vocal_style": body.vocal_style,
+        "melody_model": melody_model_id(),
     }
+    # OpenCpop DiffSinger is Mandarin; English through it is unintelligible warble.
+    # Opt in with CALLIOPE_TTS_BACKEND=diffsinger. Default is Piper (words first).
+    if (os.environ.get("CALLIOPE_TTS_BACKEND") or "").strip().lower() == "diffsinger":
+        sung_ml = synthesize_diffsinger(
+            body.lyrics,
+            melody,
+            sr=body.sample_rate,
+            voice_name=body.voice_model,
+        )
+        if sung_ml is not None:
+            extra["source"] = "lyrics_svs"
+            extra["tts_backend"] = "diffsinger"
+            return sung_ml, extra
+
     sung = synthesize_speech_to_singing(
         body.lyrics,
         melody,
@@ -154,7 +172,7 @@ def _synthesize_from_lyrics(body: AiVocalSynthesizeIn) -> tuple[np.ndarray, dict
         voice_name=body.voice_model,
         vocal_style=body.vocal_style,
     )
-    extra["source"] = "lyrics_svs"
+    extra["source"] = "lyrics_formant"
     extra["tts_backend"] = "formant"
     return raw, extra
 
@@ -219,8 +237,8 @@ def _synthesize_vocal_sync(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
         source = extra.get("source") or "lyrics_svs"
 
     rack = _rack_from_body(body)
-    if source == "lyrics_sts":
-        # Keep the neural TTS take; autotune/grit was adding robot + noise.
+    if source in {"lyrics_sts", "lyrics_svs"}:
+        # Neural takes already have pitch; autotune/grit was adding robot + noise.
         rack = rack.model_copy(
             update={
                 "tune_tightness": 0,
@@ -268,8 +286,8 @@ def _synthesize_vocal_sync(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
 async def ai_vocal_synthesize(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
     """Generate a sung vocal from lyrics, or enhance an existing recording.
 
-    Lyrics prefer local Piper neural TTS (or OpenAI if a key is set). The
-    spoken take is kept intact — no macOS say, no per-note hard-tune.
-    Formant SVS is the fallback. A recording id still takes priority.
+    Lyrics prefer local Piper neural TTS so the words stay intelligible.
+    DiffSinger is opt-in (CALLIOPE_TTS_BACKEND=diffsinger). Formant SVS is
+    the last fallback. A recording id still takes priority.
     """
     return await asyncio.to_thread(_synthesize_vocal_sync, body)
