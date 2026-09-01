@@ -46,7 +46,7 @@ export type AiVocalSynthesizeResult = {
   recording_id: string | null;
   session_id: string | null;
   filename: string;
-  source: "lyrics_sts" | "lyrics_svs" | "recording" | "demo_tone" | string;
+  source: "lyrics_svs" | "lyrics_sts" | "lyrics_formant" | "recording" | "demo_tone" | string;
   metrics: Record<string, unknown>;
   truncated: boolean;
 };

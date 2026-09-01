@@ -3,6 +3,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from calliope.audio.speech_to_singing import sing_from_speech, tts_available
+from calliope.audio.svs_diffsinger import diffsinger_available, ipa_to_opencpop, synthesize_diffsinger
 from calliope.audio.vocal_synth import AIVocalSynthesizer, lyric_tokens, melody_from_lyrics
 from calliope.main import app
 
@@ -20,11 +21,47 @@ def test_melody_from_lyrics_is_longer_than_a_boop():
     assert last_end > 1.0
 
 
+def test_vocal_mlp_writes_scale_pitches():
+    from calliope.audio.vocal_melody_ml import melody_model_id, weights_available
+    from calliope.audio.vocal_synth import VOICE_RANGES
+
+    if not weights_available():
+        pytest.skip("vocal melody MLP weights not trained")
+    lo, hi = VOICE_RANGES["tenor"]
+    melody = melody_from_lyrics(
+        "Floating through the neon sky, AI singing high",
+        bpm=120,
+        voice_name="tenor",
+        genre_preset="pop",
+    )
+    assert melody_model_id() == "vocal_mlp"
+    assert len(melody) >= 6
+    assert all(lo <= midi <= hi for midi, _s, _d in melody)
+
+
 def test_formant_synth_renders_audio():
     lyrics = "Hello neon"
     melody = melody_from_lyrics(lyrics, bpm=100, voice_name="tenor")
     y = AIVocalSynthesizer(sr=16_000).synthesize(lyrics, melody, voice_name="tenor")
     assert y.size > 16_000  # > 1s at 16 kHz, not a 0.35s beep
+    assert float(abs(y).max()) > 0.05
+
+
+def test_ipa_to_opencpop_maps_english():
+    phones = ipa_to_opencpop("həlˈoʊ nˈiːɑːn skˈaɪ")
+    assert "h" in phones
+    assert "ou" in phones or "u" in phones
+    assert "ai" in phones
+
+
+def test_diffsinger_renders_when_weights_present():
+    if not diffsinger_available():
+        pytest.skip("DiffSinger ONNX weights not installed")
+    lyrics = "Hello neon"
+    melody = melody_from_lyrics(lyrics, bpm=100, voice_name="soprano")
+    y = synthesize_diffsinger(lyrics, melody, sr=16_000)
+    assert y is not None
+    assert y.size > 8_000
     assert float(abs(y).max()) > 0.05
 
 
@@ -56,7 +93,7 @@ async def test_synthesize_lyrics_is_not_a_demo_tone():
         )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["source"] in ("lyrics_sts", "lyrics_svs")
+    assert body["source"] in ("lyrics_sts", "lyrics_svs", "lyrics_formant")
     if tts_available():
         assert body["source"] == "lyrics_sts"
         assert body["metrics"].get("tts_backend") in ("piper", "openai_tts", "macos_say")
@@ -64,6 +101,10 @@ async def test_synthesize_lyrics_is_not_a_demo_tone():
     assert len(body["waveform"]) > 100
     assert max(abs(v) for v in body["waveform"]) > 0.02
     assert body["output_file"]
+    from calliope.audio.vocal_melody_ml import weights_available
+
+    if weights_available():
+        assert body["metrics"].get("melody_model") == "vocal_mlp"
 
 
 @pytest.mark.asyncio
@@ -100,7 +141,7 @@ async def test_synthesize_into_session_registers_file():
         )
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["source"] in ("lyrics_sts", "lyrics_svs")
+        assert body["source"] in ("lyrics_sts", "lyrics_svs", "lyrics_formant")
         assert body["session_id"] == session_id
         assert body["recording_id"]
         dl = await c.get(body["output_file"])
