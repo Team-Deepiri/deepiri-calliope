@@ -18,7 +18,7 @@ router = APIRouter(tags=["ai-vocal"])
 
 
 class AiVocalSynthesizeIn(BaseModel):
-    lyrics: str = Field("", description="Lyrics for formant SVS when no recording is given")
+    lyrics: str = Field("", description="Lyrics to speak and retune onto a melody")
     voice_model: str = Field("tenor")
     tuning_strength: float = Field(0.8, ge=0, le=1)
     arrangement_style: str = Field("verse-chorus")
@@ -115,6 +115,7 @@ def _preview_waveform(mono: np.ndarray, points: int = 2000) -> list[float]:
 
 
 def _synthesize_from_lyrics(body: AiVocalSynthesizeIn) -> tuple[np.ndarray, dict[str, Any]]:
+    from calliope.audio.speech_to_singing import synthesize_speech_to_singing
     from calliope.audio.vocal_synth import AIVocalSynthesizer, lyric_tokens, melody_from_lyrics
 
     melody = melody_from_lyrics(
@@ -125,15 +126,7 @@ def _synthesize_from_lyrics(body: AiVocalSynthesizeIn) -> tuple[np.ndarray, dict
         vocal_style=body.vocal_style,
         bpm=body.bpm,
     )
-    synth = AIVocalSynthesizer(sr=body.sample_rate)
-    raw = synth.synthesize(
-        body.lyrics,
-        melody,
-        voice_name=body.voice_model,
-        vocal_style=body.vocal_style,
-    )
-    return raw, {
-        "source": "lyrics_svs",
+    extra: dict[str, Any] = {
         "syllables": len(lyric_tokens(body.lyrics)),
         "notes": len(melody),
         "voice_model": body.voice_model,
@@ -141,6 +134,29 @@ def _synthesize_from_lyrics(body: AiVocalSynthesizeIn) -> tuple[np.ndarray, dict
         "arrangement_style": body.arrangement_style,
         "vocal_style": body.vocal_style,
     }
+    sung = synthesize_speech_to_singing(
+        body.lyrics,
+        melody,
+        voice_name=body.voice_model,
+        vocal_style=body.vocal_style,
+        sr=body.sample_rate,
+    )
+    if sung is not None:
+        raw, backend = sung
+        extra["source"] = "lyrics_sts"
+        extra["tts_backend"] = backend
+        return raw, extra
+
+    synth = AIVocalSynthesizer(sr=body.sample_rate)
+    raw = synth.synthesize(
+        body.lyrics,
+        melody,
+        voice_name=body.voice_model,
+        vocal_style=body.vocal_style,
+    )
+    extra["source"] = "lyrics_svs"
+    extra["tts_backend"] = "formant"
+    return raw, extra
 
 
 def _write_output(
@@ -159,7 +175,7 @@ def _write_output(
         try:
             from calliope.routes.recordings import write_and_register_session_wav
 
-            label = "Generated vocal.wav" if source == "lyrics_svs" else "Enhanced vocal.wav"
+            label = "Generated vocal.wav" if source.startswith("lyrics_") else "Enhanced vocal.wav"
             meta = write_and_register_session_wav(
                 body.session_id,
                 audio,
@@ -200,9 +216,20 @@ def _synthesize_vocal_sync(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
         raw, extra = _synthesize_from_lyrics(body)
         samples = raw.tolist()
         sr = body.sample_rate
-        source = "lyrics_svs"
+        source = extra.get("source") or "lyrics_svs"
 
     rack = _rack_from_body(body)
+    if source == "lyrics_sts":
+        # Keep the neural TTS take; autotune/grit was adding robot + noise.
+        rack = rack.model_copy(
+            update={
+                "tune_tightness": 0,
+                "grit_parallel": min(rack.grit_parallel, 10),
+                "saturation_drive": min(rack.saturation_drive, 14),
+                "punch_snap": min(rack.punch_snap, 32),
+                "formant_shift": 50,
+            }
+        )
     y, rep = process_voice_unit(
         samples,
         sr,
@@ -241,7 +268,8 @@ def _synthesize_vocal_sync(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
 async def ai_vocal_synthesize(body: AiVocalSynthesizeIn) -> AiVocalSynthesizeOut:
     """Generate a sung vocal from lyrics, or enhance an existing recording.
 
-    Lyrics use the in-box formant SVS engine (not a neural singer). A recording
-    id still takes priority. The demo sine is only used when both are missing.
+    Lyrics prefer local Piper neural TTS (or OpenAI if a key is set). The
+    spoken take is kept intact — no macOS say, no per-note hard-tune.
+    Formant SVS is the fallback. A recording id still takes priority.
     """
     return await asyncio.to_thread(_synthesize_vocal_sync, body)

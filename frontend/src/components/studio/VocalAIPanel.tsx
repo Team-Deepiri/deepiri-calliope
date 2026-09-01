@@ -38,7 +38,8 @@ const GENRE_PRESETS: Record<GenrePreset, { tuning: number; reverb: number; compr
 };
 
 const SOURCE_LABEL: Record<string, string> = {
-  lyrics_svs: "Formant SVS",
+  lyrics_sts: "Sung vocal",
+  lyrics_svs: "Formant fallback",
   recording: "Enhanced take",
   demo_tone: "Demo tone",
 };
@@ -147,11 +148,11 @@ export function VocalAIPanel({ bpm, resolveSessionId, onPlaceOnTimeline }: Props
         <Mic2 size={14} />
         <div>
           <strong>Generate vocal</strong>
-          <span>Lyrics → formant SVS</span>
+          <span>Lyrics → sung vocal</span>
         </div>
       </div>
       <p className="daw-vocal-ai__hint">
-        Sings your lyrics with a formant voice (not a neural singer). Drops the clip on the Vocals track.
+        Local Piper voice with a gentle sung melody — not macOS say, not hard autotune.
       </p>
 
       <div>

@@ -1,6 +1,8 @@
+import numpy as np
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from calliope.audio.speech_to_singing import sing_from_speech, tts_available
 from calliope.audio.vocal_synth import AIVocalSynthesizer, lyric_tokens, melody_from_lyrics
 from calliope.main import app
 
@@ -26,6 +28,19 @@ def test_formant_synth_renders_audio():
     assert float(abs(y).max()) > 0.05
 
 
+def test_sing_from_speech_retunes_voiced_audio():
+    sr = 16_000
+    t = np.arange(int(0.8 * sr)) / sr
+    speech = 0.3 * np.sin(2 * np.pi * 180 * t) + 0.12 * np.sin(2 * np.pi * 360 * t)
+    melody = [(64, 0.0, 0.35), (67, 0.4, 0.35)]
+    y = sing_from_speech(speech, sr, melody, sr=sr)
+    assert y.size > int(0.6 * sr)
+    assert float(abs(y).max()) > 0.05
+    # Contour should move pitch, not leave the take as spoken.
+    n = min(y.size, speech.size)
+    assert not np.allclose(y[:n], speech[:n], atol=1e-3)
+
+
 @pytest.mark.asyncio
 async def test_synthesize_lyrics_is_not_a_demo_tone():
     transport = ASGITransport(app=app)
@@ -41,7 +56,10 @@ async def test_synthesize_lyrics_is_not_a_demo_tone():
         )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["source"] == "lyrics_svs"
+    assert body["source"] in ("lyrics_sts", "lyrics_svs")
+    if tts_available():
+        assert body["source"] == "lyrics_sts"
+        assert body["metrics"].get("tts_backend") in ("piper", "openai_tts", "macos_say")
     assert body["duration_sec"] > 1.0
     assert len(body["waveform"]) > 100
     assert max(abs(v) for v in body["waveform"]) > 0.02
@@ -82,7 +100,7 @@ async def test_synthesize_into_session_registers_file():
         )
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["source"] == "lyrics_svs"
+        assert body["source"] in ("lyrics_sts", "lyrics_svs")
         assert body["session_id"] == session_id
         assert body["recording_id"]
         dl = await c.get(body["output_file"])
