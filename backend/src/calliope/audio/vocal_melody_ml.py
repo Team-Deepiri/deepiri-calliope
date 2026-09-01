@@ -1,12 +1,13 @@
 """Trained MLP that writes a vocal melody from lyric syllables.
 
 Timing stays rule-based (bpm / arrangement). Pitch is a small ReLU network
-trained on cadence-aware teacher melodies, then saved as NumPy weights so
-Generate vocal can run it with no extra ML runtime.
+trained on OpenScore Lieder (CC0 lyrics-on-notes) plus a lighter cadence
+teacher, then saved as NumPy weights so Generate vocal needs no extra ML runtime.
 """
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -181,13 +182,21 @@ def teacher_next_index(
     return int(np.clip(idx + delta, 0, pool_len - 1))
 
 
-def train_and_save(path: Path | None = None, n_songs: int = 480) -> Path:
-    """Fit a 12→64→32→1 MLP on teacher melodies and write npz weights."""
-    from sklearn.neural_network import MLPRegressor
+def default_lieder_root() -> Path:
+    env = os.environ.get("OPENSCORE_LIEDER_ROOT", "").strip()
+    if env:
+        return Path(env)
+    try:
+        from calliope.config import get_settings
 
+        return get_settings().data_path / "openscore-lieder"
+    except Exception:
+        return Path("data") / "openscore-lieder"
+
+
+def _teacher_rows(n_songs: int, rng: np.random.Generator) -> tuple[list[np.ndarray], list[float]]:
     from calliope.audio.vocal_synth import lyric_phrases, lyric_tokens
 
-    rng = np.random.default_rng(7)
     words = (
         "love night fire rain heart light dark moon sun sky neon floating high "
         "singing river ocean baby city lonely golden silver running closer hold "
@@ -250,6 +259,43 @@ def train_and_save(path: Path | None = None, n_songs: int = 480) -> Path:
             prev2 = prev
             prev = float(nxt)
             idx = nxt
+    return xs, ys
+
+
+def train_and_save(
+    path: Path | None = None,
+    n_songs: int = 480,
+    *,
+    lieder_root: Path | None = None,
+    mix_teacher: bool = True,
+) -> Path:
+    """Fit a 12→64→32→1 MLP and write npz weights.
+
+    Uses OpenScore Lieder when the corpus is on disk (real lyrics-on-notes).
+    Mixes in synthetic teacher songs so genre/arrangement features stay useful.
+    """
+    from sklearn.neural_network import MLPRegressor
+
+    from calliope.audio.lieder_melody import collect_lieder_dataset
+
+    rng = np.random.default_rng(7)
+    root = lieder_root if lieder_root is not None else default_lieder_root()
+    xs: list[np.ndarray] = []
+    ys: list[float] = []
+    n_lieder = 0
+    if root.is_dir():
+        lx, ly, n_lieder = collect_lieder_dataset(root)
+        if n_lieder:
+            xs.extend(lx)
+            ys.extend(ly.tolist())
+            print(f"OpenScore Lieder: {n_lieder} songs, {len(ys)} note rows")
+    teacher_n = n_songs if n_lieder == 0 else (120 if mix_teacher else 0)
+    if teacher_n:
+        tx, ty = _teacher_rows(teacher_n, rng)
+        xs.extend(tx)
+        ys.extend(ty)
+    if not xs:
+        raise RuntimeError("no vocal melody training rows")
     x = np.stack(xs).astype(np.float32)
     y = np.asarray(ys, dtype=np.float32)
     mlp = MLPRegressor(
@@ -272,6 +318,8 @@ def train_and_save(path: Path | None = None, n_songs: int = 480) -> Path:
         b2=mlp.intercepts_[1].astype(np.float32),
         w3=mlp.coefs_[2].astype(np.float32),
         b3=mlp.intercepts_[2].astype(np.float32),
+        n_lieder_songs=np.int32(n_lieder),
+        n_examples=np.int32(len(ys)),
     )
     _load_weights.cache_clear()
     return dest
@@ -304,5 +352,7 @@ def ml_melody_midis(
 
 
 if __name__ == "__main__":
+    root = default_lieder_root()
+    print(f"lieder root: {root} exists={root.is_dir()}")
     out = train_and_save()
     print(f"wrote {out}")
