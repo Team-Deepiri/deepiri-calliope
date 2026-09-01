@@ -38,6 +38,44 @@ export async function processVoiceUnit(body: {
   return r.json() as Promise<VoiceProcessResult>;
 }
 
+export type AiVocalSynthesizeResult = {
+  waveform: number[];
+  sample_rate: number;
+  duration_sec: number;
+  output_file: string;
+  recording_id: string | null;
+  session_id: string | null;
+  filename: string;
+  source: "lyrics_svs" | "lyrics_sts" | "lyrics_formant" | "recording" | "demo_tone" | string;
+  metrics: Record<string, unknown>;
+  truncated: boolean;
+};
+
+export async function synthesizeAiVocal(body: {
+  lyrics: string;
+  voice_model?: string;
+  tuning_strength?: number;
+  arrangement_style?: string;
+  vocal_style?: string;
+  genre_preset?: string;
+  genre_settings?: Record<string, unknown>;
+  bpm?: number;
+  session_id?: string | null;
+  recording_id?: string | null;
+  sample_rate?: number;
+  signal?: AbortSignal;
+}): Promise<AiVocalSynthesizeResult> {
+  const { signal, ...payload } = body;
+  const r = await fetch(`${base}/v1/ai-vocal/synthesize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<AiVocalSynthesizeResult>;
+}
+
 export async function fetchHealth() {
   const r = await fetch(`${base}/health`);
   if (!r.ok) throw new Error("health failed");
