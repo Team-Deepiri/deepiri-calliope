@@ -37,6 +37,7 @@ def test_vocal_mlp_writes_scale_pitches():
     assert melody_model_id() == "vocal_mlp"
     assert len(melody) >= 6
     assert all(lo <= midi <= hi for midi, _s, _d in melody)
+    assert all(d > 0.05 for _m, _s, d in melody)
 
 
 def test_formant_synth_renders_audio():

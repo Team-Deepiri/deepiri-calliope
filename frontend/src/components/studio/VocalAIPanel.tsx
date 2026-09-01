@@ -153,7 +153,7 @@ export function VocalAIPanel({ bpm, resolveSessionId, onPlaceOnTimeline }: Props
         </div>
       </div>
       <p className="daw-vocal-ai__hint">
-        A melody MLP trained on OpenScore Lieder writes the tune; Piper sings the words.
+        A melody MLP trained on OpenScore Lieder writes pitch and rhythm; Piper sings the words.
       </p>
 
       <div>
