@@ -10,7 +10,7 @@ from calliope.config import get_settings
 from calliope.db import init_db
 from calliope.integrations.synapse_stub import log_synapse_style_banner
 from calliope.middleware.request_id import RequestIdMiddleware
-from calliope.routes import aamati, ai_generation, ai_generation_models, arrangement, eq as eq_routes, formats, generate, health, jobs, loop_library, midi_learn, music, ollama as ollama_routes, pitch as pitch_routes, science, session_advanced, voice, recordings, plugins, websocket, presets, clips, vocal_effects, visualization, sessions, stems, midi, batch, export, ai_mix, synth, monitoring, loops, automation, modulation, routing
+from calliope.routes import aamati, ai_generation, ai_generation_models, ai_vocal, arrangement, eq as eq_routes, formats, generate, health, jobs, loop_library, midi_learn, music, ollama as ollama_routes, pitch as pitch_routes, science, session_advanced, voice, recordings, plugins, websocket, presets, clips, vocal_effects, visualization, sessions, stems, midi, batch, export, ai_mix, synth, monitoring, loops, automation, modulation, routing
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(science.router)
     app.include_router(voice.router)
+    app.include_router(ai_vocal.router)
     app.include_router(recordings.router)
     app.include_router(plugins.router)
     app.include_router(presets.router)

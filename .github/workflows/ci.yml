@@ -3,11 +3,18 @@ name: CI
 on:
   pull_request:
     branches: [main, dev]
-  push:
-    branches: [main, dev]
-
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE*'
+  workflow_dispatch:
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   PYTHON_VERSION: "3.12"
@@ -16,6 +23,7 @@ env:
 
 jobs:
   frontend:
+    timeout-minutes: 20
     name: Frontend
     runs-on: ubuntu-latest
 
@@ -47,6 +55,7 @@ jobs:
         run: npm run build --prefix frontend
 
   ci-pat-access:
+    timeout-minutes: 20
     name: CI PAT access
     runs-on: ubuntu-latest
     env:
@@ -66,6 +75,7 @@ jobs:
           echo "REGISTRY_TOKEN is configured."
 
   backend:
+    timeout-minutes: 20
     name: Backend
     runs-on: ubuntu-latest
     needs: ci-pat-access
@@ -144,6 +154,7 @@ jobs:
         timeout-minutes: 30
 
   docker:
+    timeout-minutes: 20
     name: Docker images
     runs-on: ubuntu-latest
     needs: ci-pat-access
@@ -169,6 +180,7 @@ jobs:
         run: docker build -f docker/Dockerfile.web -t deepiri-calliope-web:ci .
 
   compose-smoke:
+    timeout-minutes: 20
     name: Compose smoke
     runs-on: ubuntu-latest
     needs: [frontend, backend, docker]

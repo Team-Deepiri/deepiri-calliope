@@ -139,11 +139,42 @@
   margin: 0 0.35rem;
 }
 
+.daw-transport__led {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.daw-transport__led-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--daw-dim);
+  opacity: 0.6;
+}
+
+.daw-transport__led-dot[data-state="play"] {
+  background: var(--daw-play);
+  box-shadow: 0 0 6px var(--daw-play);
+  opacity: 1;
+}
+
+.daw-transport__led-dot[data-state="rec"] {
+  background: var(--daw-record);
+  box-shadow: 0 0 6px var(--daw-record);
+  animation: daw-rec-blink 1s steps(2, start) infinite;
+  opacity: 1;
+}
+
+@keyframes daw-rec-blink {
+  to { visibility: hidden; }
+}
+
 .daw-transport__time {
   font-family: var(--daw-mono);
   font-size: 0.8rem;
   color: var(--daw-accent);
-  min-width: 5.5rem;
+  min-width: 6.5rem;
   padding: 0.25rem 0.5rem;
   background: rgba(0, 0, 0, 0.35);
   border-radius: var(--daw-radius);
@@ -355,6 +386,12 @@
   flex-direction: column;
 }
 
+.daw-automation {
+  flex-shrink: 0;
+  border-top: 1px solid var(--daw-border-subtle);
+  overflow: hidden;
+}
+
 .daw-vocal-dock {
   flex-shrink: 0;
   border-top: 1px solid var(--daw-border-subtle);
@@ -544,6 +581,16 @@
   box-shadow: 0 0 8px var(--daw-accent);
   z-index: 5;
   pointer-events: none;
+  will-change: transform;
+}
+
+.daw-timeline__playhead::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -4px;
+  border: 5px solid transparent;
+  border-top-color: var(--daw-accent);
 }
 
 /* —— Mixer strip —— */
@@ -599,22 +646,73 @@
 }
 
 .daw-strip__meter {
-  width: 6px;
+  width: 9px;
   height: 56px;
-  background: #0a0b0e;
+  background: #07080b;
   border-radius: 3px;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   margin-bottom: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
+
+.daw-strip__meter-scale {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.daw-strip__meter-scale i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.daw-strip__meter-scale i:nth-child(1) { bottom: 25%; }
+.daw-strip__meter-scale i:nth-child(2) { bottom: 50%; }
+.daw-strip__meter-scale i:nth-child(3) { bottom: 75%; }
+.daw-strip__meter-scale i:nth-child(4) { bottom: 90.9%; background: rgba(232, 184, 74, 0.5); }
 
 .daw-strip__meter-fill {
   position: absolute;
   bottom: 0;
-  left: 0;
-  right: 0;
-  background: linear-gradient(to top, var(--daw-play), var(--daw-warn), var(--daw-record));
-  border-radius: 3px;
+  left: 1px;
+  right: 1px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to top,
+    var(--daw-play) 0%,
+    var(--daw-play) 62%,
+    var(--daw-warn) 85%,
+    var(--daw-record) 97%
+  );
+  clip-path: inset(0 0 var(--daw-meter-peak, 100%) 0);
+  transition: height 80ms linear;
+}
+
+.daw-strip__meter-hold {
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 1.5px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 3px rgba(255, 255, 255, 0.5);
+}
+
+.daw-strip__meter-clip {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--daw-record);
+  box-shadow: 0 0 6px var(--daw-record-glow);
 }
 
 .daw-strip__fader-wrap {
@@ -950,6 +1048,43 @@
   font-size: 0.58rem;
   color: var(--daw-muted);
   font-family: var(--daw-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.daw-strip.is-muted .daw-strip__meter {
+  opacity: 0.35;
+}
+
+.daw-strip.is-muted .daw-strip__name {
+  color: var(--daw-dim);
+}
+
+.daw-strip__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Smooth scrollbars inside the DAW shell */
+.daw ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.daw ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.daw ::-webkit-scrollbar-thumb {
+  background: var(--daw-border);
+  border-radius: 5px;
+  border: 2px solid var(--daw-bg);
+}
+
+.daw ::-webkit-scrollbar-thumb:hover {
+  background: var(--daw-muted);
 }
 
 .daw-timeline__lane.is-selected {
@@ -959,19 +1094,54 @@
 .daw-timeline__clip--audio {
   border: 0;
   cursor: pointer;
-  color: #0c0d10;
+  color: #f2f5fb;
   font-weight: 700;
   font-size: 0.65rem;
   text-align: left;
-  padding: 0.2rem 0.35rem;
+  padding: 0;
   overflow: hidden;
   z-index: 2;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 42%),
+    var(--daw-clip-color, #5b8def);
+  border-top: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 -10px 14px -12px rgba(0, 0, 0, 0.55),
+    0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: filter 120ms ease-out, box-shadow 120ms ease-out;
+}
+
+.daw-timeline__clip--audio:hover {
+  filter: brightness(1.08);
+}
+
+.daw-timeline__clip--audio:active {
+  filter: brightness(0.96);
+}
+
+.daw-clip-name {
+  position: absolute;
+  top: 2px;
+  left: 6px;
+  right: 6px;
+  z-index: 2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.daw-clip-wave {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .daw-timeline__clip--section {
   pointer-events: none;
   opacity: 0.55;
 }
+
+/* —— Mixer strip —— */
 
 .daw-pipeline {
   display: flex;
@@ -1344,4 +1514,503 @@
   .daw-inspector {
     display: none;
   }
+}
+
+/* —— Boot splash (Discord-style intro) —— */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #050608;
+  animation: splash-fade-in 420ms ease-out;
+  transition: opacity 620ms ease, transform 620ms ease;
+}
+
+.splash--exit {
+  opacity: 0;
+  transform: scale(1.05);
+  pointer-events: none;
+}
+
+@keyframes splash-fade-in {
+  from { opacity: 0; }
+}
+
+.splash__glow {
+  position: absolute;
+  width: 60vmin;
+  height: 60vmin;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(107, 159, 255, 0.16) 0%, rgba(107, 159, 255, 0.04) 42%, transparent 70%);
+  animation: splash-glow-breathe 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes splash-glow-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+
+.splash__center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+}
+
+.splash-logo {
+  width: 128px;
+  height: 128px;
+  stroke: var(--daw-accent);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 18px rgba(107, 159, 255, 0.45));
+  animation: splash-logo-pulse 2.4s ease-in-out infinite 1.4s;
+}
+
+.splash-logo__ring {
+  fill: none;
+  stroke-dasharray: 290;
+  stroke-dashoffset: 290;
+  stroke-linecap: round;
+  animation: splash-draw 900ms cubic-bezier(0.65, 0, 0.35, 1) forwards 150ms;
+}
+
+.splash-logo__wave {
+  fill: none;
+  stroke: #e8ebf2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 240;
+  stroke-dashoffset: 240;
+  animation: splash-draw 700ms cubic-bezier(0.65, 0, 0.35, 1) forwards 650ms;
+}
+
+.splash-logo__dot {
+  fill: var(--daw-accent);
+  opacity: 0;
+  animation: splash-dot-pop 300ms ease-out forwards 1250ms;
+}
+
+@keyframes splash-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes splash-dot-pop {
+  from { opacity: 0; transform: scale(0.4); transform-origin: 60px 60px; }
+  to { opacity: 1; transform: scale(1); transform-origin: 60px 60px; }
+}
+
+@keyframes splash-logo-pulse {
+  0%, 100% { filter: drop-shadow(0 0 14px rgba(107, 159, 255, 0.35)); }
+  50% { filter: drop-shadow(0 0 26px rgba(107, 159, 255, 0.65)); }
+}
+
+.splash-wordmark {
+  display: flex;
+  gap: 0.06em;
+  margin: 0.4rem 0 0;
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  color: var(--daw-text);
+  text-indent: 0.34em; /* balance the trailing tracking */
+}
+
+.splash-wordmark span {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: splash-letter 460ms cubic-bezier(0.22, 1, 0.36, 1) forwards calc(950ms + var(--i) * 55ms);
+}
+
+@keyframes splash-letter {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.splash-tagline {
+  margin: -0.5rem 0 0;
+  font-size: 0.62rem;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  color: var(--daw-dim);
+  opacity: 0;
+  animation: splash-rise 500ms ease-out forwards 1750ms;
+}
+
+.splash-progress {
+  width: 220px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  opacity: 0;
+  animation: splash-rise 500ms ease-out forwards 1950ms;
+}
+
+.splash-progress__fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--daw-accent), #9db9ff);
+  box-shadow: 0 0 10px rgba(107, 159, 255, 0.7);
+  transition: width 140ms ease-out;
+}
+
+.splash-status {
+  margin: -0.55rem 0 0;
+  min-height: 1em;
+  font-family: var(--daw-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  color: var(--daw-muted);
+  opacity: 0;
+  animation: splash-rise 500ms ease-out forwards 2100ms;
+}
+
+.splash-skip {
+  position: absolute;
+  bottom: 2.2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.58rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--daw-dim);
+  opacity: 0;
+  animation: splash-rise 600ms ease-out forwards 2600ms;
+}
+
+@keyframes splash-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash,
+  .splash__glow,
+  .splash-logo,
+  .splash-logo__ring,
+  .splash-logo__wave,
+  .splash-logo__dot,
+  .splash-wordmark span,
+  .splash-tagline,
+  .splash-progress,
+  .splash-status,
+  .splash-skip {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    opacity: 1;
+    transform: none;
+    stroke-dashoffset: 0;
+  }
+
+  .splash--exit {
+    transition-duration: 120ms;
+  }
+}
+
+/* —— Timeline empty state —— */
+.daw-timeline__empty {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 45%, rgba(107, 159, 255, 0.06), transparent);
+}
+
+.daw-timeline__empty-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 34px;
+  margin-bottom: 0.35rem;
+}
+
+.daw-timeline__empty-eq i {
+  width: 4px;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(to top, var(--daw-accent), rgba(107, 159, 255, 0.25));
+  transform-origin: bottom;
+  transform: scaleY(0.18);
+  animation: daw-eq-idle 1.6s ease-in-out infinite calc(var(--i) * -140ms);
+}
+
+@keyframes daw-eq-idle {
+  0%, 100% { transform: scaleY(0.16); opacity: 0.55; }
+  35% { transform: scaleY(0.85); opacity: 1; }
+  70% { transform: scaleY(0.32); opacity: 0.7; }
+}
+
+.daw-timeline__empty-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--daw-muted);
+}
+
+.daw-timeline__empty-hint {
+  margin: 0;
+  font-size: 0.66rem;
+  color: var(--daw-dim);
+}
+
+.daw-timeline__empty-hint kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--daw-border);
+  background: var(--daw-bg-elevated);
+  font-family: var(--daw-mono);
+  font-size: 0.6rem;
+  color: var(--daw-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .daw-timeline__empty-eq i {
+    animation: none;
+    transform: scaleY(0.3);
+  }
+}
+
+/* —— Track strip delete —— */
+.daw-strip__name {
+  cursor: default;
+}
+
+.daw-strip__delete {
+  position: absolute;
+  right: 6px;
+  bottom: 8px;
+  display: none;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 82, 82, 0.14);
+  color: var(--daw-danger, #ff5252);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.daw-strip:hover .daw-strip__delete {
+  display: flex;
+}
+
+.daw-strip__delete:hover {
+  background: rgba(255, 82, 82, 0.3);
+}
+
+/* —— Metronome toggle —— */
+.daw-transport__btn--metro.is-active {
+  color: var(--daw-accent);
+  background: rgba(107, 159, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(107, 159, 255, 0.4);
+}
+
+/* —— Clip selection —— */
+.daw-timeline__clip.is-selected {
+  outline: 2px solid var(--daw-accent);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 1px rgba(107, 159, 255, 0.35), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+/* —— FX inspector scope label —— */
+.daw-inspector__scope {
+  margin: 0 0 0.5rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(107, 159, 255, 0.08);
+  border: 1px solid rgba(107, 159, 255, 0.18);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--daw-muted);
+}
+
+/* —— Live recording scope —— */
+.daw-recscope-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(255, 82, 82, 0.07);
+  border: 1px solid rgba(255, 82, 82, 0.25);
+}
+
+.daw-recscope-badge {
+  font-family: var(--daw-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #ff5252;
+  animation: daw-rec-blink 1s steps(2) infinite;
+}
+
+@keyframes daw-rec-blink {
+  50% { opacity: 0.25; }
+}
+
+.daw-recscope {
+  display: block;
+  width: 260px;
+  height: 44px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .daw-recscope-badge {
+    animation: none;
+  }
+}
+
+/* —— Toolbar utility: saved indicator + disabled states —— */
+.daw-toolbar__saved {
+  font-family: var(--daw-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  color: var(--daw-dim);
+  padding: 0 6px;
+}
+
+.daw-toolbar__mode:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* —— Piano Roll —— */
+.piano-roll {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--daw-bg);
+  border: 1px solid var(--daw-border);
+  border-radius: var(--daw-radius);
+  overflow: hidden;
+}
+.piano-roll-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--daw-surface);
+  border-bottom: 1px solid var(--daw-border);
+  min-height: 32px;
+}
+.piano-roll-toolbar__left,
+.piano-roll-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.piano-roll-tools {
+  display: flex;
+  gap: 2px;
+}
+.piano-roll-label {
+  font-family: var(--daw-mono);
+  font-size: 0.58rem;
+  color: var(--daw-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.piano-roll-zoom {
+  width: 60px;
+  height: 3px;
+  accent-color: var(--daw-accent);
+}
+.piano-roll-zoom-label {
+  font-family: var(--daw-mono);
+  font-size: 0.55rem;
+  color: var(--daw-dim);
+  min-width: 24px;
+}
+.piano-roll-container {
+  display: flex;
+  overflow: auto;
+  flex: 1;
+  position: relative;
+}
+.piano-keys {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  width: 48px;
+  flex-shrink: 0;
+  background: var(--daw-surface);
+  border-right: 1px solid var(--daw-border);
+}
+.piano-key {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+  font-family: var(--daw-mono);
+  font-size: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  box-sizing: border-box;
+}
+.piano-key--white {
+  background: #e8e8e8;
+  color: #666;
+}
+.piano-key--black {
+  background: #2a2a2a;
+  color: #888;
+}
+.piano-key--c {
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+}
+.piano-grid {
+  position: relative;
+  flex-shrink: 0;
+}
+.piano-cell {
+  position: absolute;
+  box-sizing: border-box;
+  border-right: 1px solid rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  cursor: crosshair;
+  transition: background 0.08s;
+}
+.piano-cell:hover { background: rgba(255,255,255,0.06); }
+.piano-cell--black { background: rgba(0,0,0,0.25); }
+.piano-cell--black:hover { background: rgba(100,100,255,0.12); }
+.piano-cell--bar { border-left: 1px solid rgba(255,255,255,0.1); }
+.piano-note {
+  position: absolute;
+  background: var(--daw-accent);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 2px;
+  z-index: 10;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(108,92,231,0.4);
+  transition: box-shadow 0.1s;
+}
+.piano-note--hover,
+.piano-note:hover {
+  box-shadow: 0 0 10px rgba(108,92,231,0.7);
+  border-color: rgba(255,255,255,0.5);
+}
+.piano-note--preview {
+  background: rgba(108,92,231,0.5);
+  animation: pulse 0.5s infinite alternate;
+}
+
+@keyframes pulse {
+  from { opacity: 0.4; }
+  to { opacity: 0.8; }
 }

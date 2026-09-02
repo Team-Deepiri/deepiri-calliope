@@ -206,6 +206,16 @@ async def download_recording(
     return FileResponse(file_path, media_type=f"audio/{recording['format']}")
 
 
+@router.get("/enhanced/{file_id}.wav")
+async def download_enhanced(file_id: str) -> FileResponse:
+    """Serve AI-enhanced vocal files."""
+    settings = get_settings()
+    file_path = settings.recordings_path / "enhanced" / f"{file_id}.wav"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Enhanced file not found")
+    return FileResponse(file_path, media_type="audio/wav")
+
+
 @router.post("/process", response_model=RecordingProcessResponse)
 async def process_recording(body: RecordingProcessRequest) -> RecordingProcessResponse:
     """
