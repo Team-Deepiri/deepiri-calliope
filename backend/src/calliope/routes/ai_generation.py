@@ -50,6 +50,56 @@ def _scale_and_mood(genre: str | None) -> tuple[str, str]:
     return scale, mood
 
 
+def _normalize_beat_genre(genre: str | None) -> str:
+    g = (genre or "hiphop").lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "hip_hop": "hiphop",
+        "boombap": "boom_bap",
+        "boom": "boom_bap",
+        "uk_garage": "garage",
+        "ukgarage": "garage",
+        "dnb": "breakbeat",
+        "drum_and_bass": "breakbeat",
+    }
+    return aliases.get(g, g)
+
+
+def _drum_grid_for_genre(genre: str | None) -> dict[int, list[int]]:
+    """Slot 0=kick, 1=snare, 2=closed hat."""
+    key = _normalize_beat_genre(genre)
+    presets: dict[str, dict[int, list[int]]] = {
+        "hiphop": {0: [0, 4, 8, 12], 1: [4, 12], 2: [0, 2, 4, 6, 8, 10, 12, 14]},
+        "trap": {0: [0, 8], 1: [4, 12], 2: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]},
+        "boom_bap": {0: [0, 8], 1: [4, 12], 2: [2, 6, 10, 14]},
+        "house": {0: [0, 4, 8, 12], 1: [4, 12], 2: [2, 6, 10, 14], 4: [1, 5, 9, 13]},
+        "garage": {0: [0, 6, 8, 14], 1: [4, 12], 2: [1, 3, 5, 7, 9, 11, 13, 15]},
+        "lofi": {0: [0, 10], 1: [4, 12], 2: [1, 5, 9, 13]},
+        "breakbeat": {0: [0, 6, 8, 14], 1: [4, 10, 12], 2: [0, 2, 4, 6, 8, 10, 12, 14]},
+    }
+    return presets.get(key, presets["hiphop"])
+
+
+def _tune_drum_machine(dm: DrumMachine, genre: str | None) -> None:
+    key = _normalize_beat_genre(genre)
+    if key == "trap":
+        dm.slots[0].decay = 0.35
+        dm.slots[2].decay = 0.06
+        dm.slots[2].volume = 0.55
+    elif key == "boom_bap":
+        dm.slots[0].decay = 0.7
+        dm.slots[1].decay = 0.45
+    elif key == "house":
+        dm.slots[0].decay = 0.4
+        dm.slots[0].pitch = 1.05
+    elif key == "lofi":
+        dm.slots[0].decay = 0.85
+        dm.slots[0].volume = 0.65
+        dm.slots[2].volume = 0.35
+    elif key == "garage":
+        dm.slots[2].decay = 0.12
+        dm.slots[2].volume = 0.5
+
+
 @router.get("/v1/ai-generate/download/{kind}")
 async def download_generated(kind: str) -> FileResponse:
     """Serve the last generated WAV for a known kind (gesture / studio preview)."""
@@ -117,20 +167,11 @@ async def generate_chords(body: GenerateRequest) -> GenerateResponse:
 
 @router.post("/v1/ai-generate/drums", response_model=GenerateResponse)
 async def generate_drums(body: GenerateRequest) -> GenerateResponse:
+    beat_genre = _normalize_beat_genre(body.genre)
     dm = DrumMachine(sr=48000)
-    from calliope.audio.generative_sequencer import EuclideanGenerator
-    kick_pat = EuclideanGenerator(16, 4).generate()
-    hat_pat = EuclideanGenerator(16, 8).generate()
-    snare_pat = EuclideanGenerator(16, 3).generate()
-    dm.patterns = [DrumPattern(
-        "ai_generated",
-        steps=16,
-        grid={
-            0: [i for i, v in enumerate(kick_pat) if v],
-            2: [i for i, v in enumerate(hat_pat) if v],
-            1: [i for i, v in enumerate(snare_pat) if v],
-        },
-    )]
+    _tune_drum_machine(dm, beat_genre)
+    grid = _drum_grid_for_genre(beat_genre)
+    dm.patterns = [DrumPattern("ai_generated", steps=16, grid=grid)]
     audio = dm.render_pattern(0, body.bpm)
     if audio is None or len(audio) == 0:
         audio = np.zeros(int(0.5 * 48000), dtype=np.float64)
@@ -145,7 +186,7 @@ async def generate_drums(body: GenerateRequest) -> GenerateResponse:
     return GenerateResponse(
         audio_path=str(path),
         kind="drums",
-        metadata={"bpm": body.bpm, "bars": body.duration},
+        metadata={"bpm": body.bpm, "bars": body.duration, "beat_genre": beat_genre},
     )
 
 

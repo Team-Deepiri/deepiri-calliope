@@ -274,6 +274,83 @@ export async function processRecording(
   return r.json();
 }
 
+/** Autotune + dry-rap vocal chain; registers a new take in the session for timeline playback. */
+export type RapStyle = "hard_tune" | "melodic_rap" | "natural";
+
+export type BeatStyle =
+  | "hiphop"
+  | "trap"
+  | "boom_bap"
+  | "house"
+  | "garage"
+  | "lofi"
+  | "breakbeat";
+
+export type CommitRapTakeResult = {
+  recording_id: string;
+  session_id: string;
+  filename: string;
+  duration_sec: number;
+  sample_rate: number;
+  channels: number;
+  detected_bpm?: number | null;
+  bpm_confidence?: number;
+  style?: RapStyle;
+  applied_bpm?: number | null;
+  stretched?: boolean;
+  trimmed_leading_sec?: number;
+};
+
+export type CommitRapTakeOptions = {
+  vocalRack?: VocalRackPayload;
+  style?: RapStyle;
+  targetBpm?: number;
+  forceTargetBpm?: boolean;
+  snapToTempo?: boolean;
+  trimLeadingSilence?: boolean;
+};
+
+export async function commitRapTake(
+  sessionId: string,
+  sourceRecordingId: string,
+  opts: CommitRapTakeOptions = {},
+): Promise<CommitRapTakeResult> {
+  const body: Record<string, unknown> = {
+    source_recording_id: sourceRecordingId,
+    style: opts.style ?? "melodic_rap",
+  };
+  if (opts.vocalRack) body.vocal_rack = opts.vocalRack;
+  if (opts.targetBpm != null) body.target_bpm = opts.targetBpm;
+  if (opts.forceTargetBpm != null) body.force_target_bpm = opts.forceTargetBpm;
+  if (opts.snapToTempo != null) body.snap_to_tempo = opts.snapToTempo;
+  if (opts.trimLeadingSilence != null) body.trim_leading_silence = opts.trimLeadingSilence;
+
+  const r = await fetch(`${base}/v1/recordings/sessions/${sessionId}/commit-rap-take`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+/** Generate a drum loop WAV via ai-generate and return as Blob. */
+export async function fetchGeneratedDrumsBlob(
+  bpm: number,
+  durationBars = 16,
+  genre: BeatStyle = "hiphop",
+): Promise<Blob> {
+  const gen = await fetch(`${base}/v1/ai-generate/drums`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: `${genre} beat`, bpm, duration: durationBars, genre }),
+  });
+  if (!gen.ok) throw new Error(await gen.text());
+  const dl = await fetch(`${base}/v1/ai-generate/download/drums`);
+  if (!dl.ok) throw new Error(await dl.text());
+  return dl.blob();
+}
+
 export async function applyAutotune(
   recordingId: string,
   sessionId: string,

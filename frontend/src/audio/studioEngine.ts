@@ -558,7 +558,14 @@ export class StudioEngine {
 
   async preload(clips: EngineClip[]) {
     await this.ensure();
-    await Promise.all(clips.map((c) => this.loadClip(c)));
+    const playable = clips.filter(
+      (c) =>
+        c.recordingId &&
+        c.recordingId !== "live" &&
+        c.sessionId &&
+        c.sessionId !== "live",
+    );
+    await Promise.all(playable.map((c) => this.loadClip(c)));
   }
 
   isPlaying() {

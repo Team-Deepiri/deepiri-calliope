@@ -409,6 +409,33 @@ class RecordingProcessResponse(BaseModel):
     metrics: dict[str, float]
 
 
+class CommitRapTakeRequest(BaseModel):
+    """Process a vocal take for rap (autotune + dry_rap rack) and register it in the session."""
+
+    source_recording_id: str
+    vocal_rack: VocalRackIn | None = None
+    style: Literal["hard_tune", "melodic_rap", "natural"] = "melodic_rap"
+    """Session / chosen beat tempo. Used for stretch target and detector bias."""
+    target_bpm: int | None = Field(None, ge=60, le=200)
+    """When True, always use target_bpm for the beat (and stretch the vocal toward it when detection is confident)."""
+    force_target_bpm: bool = False
+    """When True and detection is confident, time-stretch the vocal toward the applied BPM."""
+    snap_to_tempo: bool = True
+    """Trim quiet lead-in so the take lines up nearer bar 1 with the beat."""
+    trim_leading_silence: bool = True
+
+
+class CommitRapTakeResponse(RecordingUploadResponse):
+    """Rap take commit result with tempo hints for beat generation."""
+
+    detected_bpm: float | None = None
+    bpm_confidence: float = 0.0
+    style: str = "melodic_rap"
+    applied_bpm: float | None = None
+    stretched: bool = False
+    trimmed_leading_sec: float = 0.0
+
+
 class AutotuneConfigIn(BaseModel):
     mode: Literal["auto", "hard", "soft", "melodic"] = "auto"
     scale_type: Literal[

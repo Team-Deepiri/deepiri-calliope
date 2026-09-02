@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from dataclasses import dataclass
 
@@ -27,18 +29,24 @@ class TempoDetector:
         samples: np.ndarray,
         min_bpm: float = 60.0,
         max_bpm: float = 200.0,
+        prefer_bpm: float | None = None,
     ) -> tuple[float, float]:
-        """Detect BPM using autocorrelation."""
+        """Detect BPM using onset-envelope autocorrelation.
+
+        Optional ``prefer_bpm`` biases half/double folding toward a session tempo
+        (useful for a cappella rap takes with weak metrical evidence).
+        """
         if samples.ndim == 2:
             mono = (samples[:, 0] + samples[:, 1]) / 2
         else:
             mono = samples
 
         mono = mono.astype(np.float64)
-        
+        if mono.size < self.sr * 0.4:
+            return 120.0, 0.0
+
         energy = np.abs(mono)
         envelope = np.convolve(energy, np.ones(int(0.01 * self.sr)), mode="same")
-        
         envelope = envelope / (np.max(envelope) + 1e-10)
 
         hop_size = 512
@@ -48,6 +56,11 @@ class TempoDetector:
             diff = envelope[i * hop_size : (i + 1) * hop_size]
             prev = envelope[(i - 1) * hop_size : i * hop_size]
             onset_signal[i] = np.sum(np.maximum(0, diff - prev)) / hop_size
+
+        # Emphasize local peaks so spoken syllables register as onsets.
+        onset_signal = np.maximum(0.0, onset_signal - np.median(onset_signal))
+        onset_norm = float(np.max(onset_signal) + 1e-10)
+        onset_signal = onset_signal / onset_norm
 
         min_lag = int(60 / max_bpm * self.sr / hop_size)
         max_lag = int(60 / min_bpm * self.sr / hop_size)
@@ -59,21 +72,53 @@ class TempoDetector:
             return 120.0, 0.0
 
         autocorr = np.zeros(max_lag - min_lag)
-
         for lag in range(min_lag, max_lag):
-            correlation = np.mean(onset_signal[lag:] * onset_signal[:-lag])
-            autocorr[lag - min_lag] = correlation
+            autocorr[lag - min_lag] = float(np.mean(onset_signal[lag:] * onset_signal[:-lag]))
 
-        peak_idx = np.argmax(autocorr) + min_lag
-        peak_val = autocorr[peak_idx - min_lag]
+        # Collect local peaks; pick the musically likeliest candidate.
+        peaks: list[tuple[float, float, int]] = []
+        for i in range(1, len(autocorr) - 1):
+            if autocorr[i] >= autocorr[i - 1] and autocorr[i] >= autocorr[i + 1]:
+                lag = i + min_lag
+                bpm = 60.0 / (lag * hop_size / self.sr)
+                peaks.append((float(autocorr[i]), float(bpm), lag))
+        if not peaks:
+            peak_idx = int(np.argmax(autocorr)) + min_lag
+            peak_val = float(autocorr[peak_idx - min_lag])
+            bpm = 60.0 / (peak_idx * hop_size / self.sr)
+            peaks = [(peak_val, bpm, peak_idx)]
 
-        bpm = 60 / (peak_idx * hop_size / self.sr)
+        peaks.sort(key=lambda p: p[0], reverse=True)
+        top = peaks[:6]
 
-        confidence = min(1.0, peak_val * 2)
+        def _fold(bpm: float) -> float:
+            b = float(bpm)
+            while b < 70 and b * 2 <= max_bpm:
+                b *= 2
+            while b > 160 and b / 2 >= min_bpm:
+                b /= 2
+            return float(np.clip(b, min_bpm, max_bpm))
 
-        bpm = np.clip(bpm, min_bpm, max_bpm)
+        scored: list[tuple[float, float, float]] = []
+        for strength, bpm, _lag in top:
+            folded = _fold(bpm)
+            score = strength
+            if prefer_bpm and prefer_bpm > 0:
+                # Prefer candidates near session tempo or its half/double.
+                ratios = [folded / prefer_bpm, prefer_bpm / folded]
+                closeness = min(abs(math.log2(max(r, 1e-6))) for r in ratios)
+                score *= 1.0 + max(0.0, 1.0 - closeness * 2.5)
+            scored.append((score, folded, strength))
 
-        return float(bpm), float(confidence)
+        scored.sort(key=lambda s: s[0], reverse=True)
+        best_score, bpm, peak_val = scored[0]
+        confidence = float(np.clip(peak_val * 2.2, 0.0, 1.0))
+        # Soften confidence when top peaks disagree (ambiguous a cappella).
+        if len(scored) >= 2:
+            spread = abs(math.log2(max(scored[0][1], 1e-6) / max(scored[1][1], 1e-6)))
+            if spread > 0.35:
+                confidence *= 0.65
+        return float(round(bpm, 1)), float(confidence)
 
     def find_beats(
         self,
@@ -189,6 +234,73 @@ def detect_tempo(samples: np.ndarray, sr: int = 48000) -> tuple[float, float]:
     """Convenience function for tempo detection."""
     detector = TempoDetector(sr)
     return detector.detect_bpm(samples)
+
+
+def trim_leading_silence(
+    samples: np.ndarray,
+    sr: int,
+    threshold: float = 0.02,
+    max_trim_sec: float = 2.5,
+    pad_sec: float = 0.02,
+) -> np.ndarray:
+    """Drop quiet lead-in so the take starts nearer bar 1 with the generated beat."""
+    if samples.ndim == 2:
+        mono = (samples[:, 0] + samples[:, 1]) / 2.0
+    else:
+        mono = samples
+    mono = np.asarray(mono, dtype=np.float64)
+    if mono.size == 0:
+        return samples
+
+    win = max(1, int(0.01 * sr))
+    env = np.convolve(np.abs(mono), np.ones(win) / win, mode="same")
+    peak = float(np.max(env) + 1e-10)
+    gate = max(threshold * peak, 1e-4)
+    idx = int(np.argmax(env >= gate))
+    if env[idx] < gate:
+        return samples
+    max_trim = int(max_trim_sec * sr)
+    if idx > max_trim:
+        return samples
+    start = max(0, idx - int(pad_sec * sr))
+    if start <= 0:
+        return samples
+    if samples.ndim == 2:
+        return samples[start:]
+    return samples[start:]
+
+
+def stretch_to_tempo(
+    samples: np.ndarray,
+    sr: int,
+    from_bpm: float,
+    to_bpm: float,
+    *,
+    min_ratio: float = 0.72,
+    max_ratio: float = 1.38,
+) -> tuple[np.ndarray, bool]:
+    """Pitch-preserving tempo warp via WSOLA.
+
+    Returns ``(audio, did_stretch)``. Rate uses WSOLA convention (``>1`` = slower /
+    longer), i.e. ``from_bpm / to_bpm``.
+    """
+    if from_bpm <= 0 or to_bpm <= 0:
+        return samples, False
+    rate = float(from_bpm / to_bpm)
+    if abs(rate - 1.0) < 0.02:
+        return samples, False
+    if rate < min_ratio or rate > max_ratio:
+        return samples, False
+
+    from calliope.audio.timestretch import WSOLAStretcher
+
+    stretcher = WSOLAStretcher(sr)
+    if samples.ndim == 2:
+        left = stretcher.stretch(samples[:, 0], rate)
+        right = stretcher.stretch(samples[:, 1], rate)
+        n = min(len(left), len(right))
+        return np.stack([left[:n], right[:n]], axis=1), True
+    return stretcher.stretch(np.asarray(samples, dtype=np.float64).ravel(), rate), True
 
 
 def sync_to_tempo(
